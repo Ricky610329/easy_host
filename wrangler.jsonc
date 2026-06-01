@@ -9,7 +9,9 @@
   // Stores each published site as JSON { html, name, theme_color }.
   // Replace "id" with the value printed by:  npx wrangler kv namespace create SITES
   "kv_namespaces": [
-    { "binding": "SITES", "id": "9bca04575f3449adb3c47a2454681c3a" }
+    { "binding": "SITES", "id": "9bca04575f3449adb3c47a2454681c3a" },
+    // Required by @cloudflare/workers-oauth-provider (stores OAuth grants/clients/tokens).
+    { "binding": "OAUTH_KV", "id": "502fb104b6b349b79e1e3d5de07e1b0c" }
   ],
 
   // MCP server (McpAgent) + one per-app backend DO (AppBackend) for data + scheduled push.

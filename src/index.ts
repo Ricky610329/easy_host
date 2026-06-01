@@ -16,12 +16,25 @@ interface Env {
   SERVICE_OPEN?: string; // "false" closes new publishing
   SERVICE_OPEN_UNTIL?: string; // ISO timestamp; publishing closes after it
   MAX_APPS?: string; // numeric cap on total published apps
+  // Accounts (Google) — Phase 1 (web session) + Phase 2 (MCP OAuth).
+  OAUTH_KV: KVNamespace; // used by @cloudflare/workers-oauth-provider (Phase 2)
+  GOOGLE_CLIENT_ID: string;
+  GOOGLE_CLIENT_SECRET: string;
+  COOKIE_SECRET: string; // HMAC key for the session cookie
+  CAP_SECRET: string; // HMAC key for per-(user,app) capability tokens
+}
+
+interface SessionUser {
+  id: string; // Google sub
+  email: string;
 }
 
 interface Site {
   html: string;
   name?: string;
   theme_color?: string;
+  owner?: string; // Google sub of the publisher; undefined => legacy/anonymous
+  visibility?: "unlisted" | "private" | "public"; // default unlisted
 }
 
 const DEFAULT_NAME = "App";
@@ -95,6 +108,139 @@ async function rateLimited(env: Env, ip: string): Promise<boolean> {
   return false;
 }
 
+// ---------- accounts: signing, sessions, capability tokens, owner index ----------
+function b64url(bytes: Uint8Array): string {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function b64urlStr(str: string): string {
+  return b64url(new TextEncoder().encode(str));
+}
+function b64urlToStr(s: string): string {
+  const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+async function hmac(secret: string, data: string): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+  return b64url(new Uint8Array(sig));
+}
+// payload.signature, where payload = base64url(JSON). exp (unix seconds) is enforced if present.
+async function signToken(secret: string, obj: Record<string, unknown>): Promise<string> {
+  const p = b64urlStr(JSON.stringify(obj));
+  return p + "." + (await hmac(secret, p));
+}
+async function verifyToken<T>(secret: string, token: string | null): Promise<T | null> {
+  if (!token) return null;
+  const i = token.lastIndexOf(".");
+  if (i < 0) return null;
+  const p = token.slice(0, i);
+  if ((await hmac(secret, p)) !== token.slice(i + 1)) return null;
+  try {
+    const obj = JSON.parse(b64urlToStr(p)) as T & { exp?: number };
+    if (obj.exp && obj.exp < Math.floor(Date.now() / 1000)) return null;
+    return obj;
+  } catch {
+    return null;
+  }
+}
+
+function parseCookie(header: string | null, name: string): string | null {
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim());
+  }
+  return null;
+}
+function sessionCookie(value: string, maxAge: number): string {
+  return `eh_session=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+}
+const CLEAR_SESSION_COOKIE = "eh_session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0";
+const SESSION_TTL = 60 * 60 * 24 * 30;
+
+async function signSession(env: Env, u: SessionUser): Promise<string> {
+  return signToken(env.COOKIE_SECRET, { uid: u.id, email: u.email, exp: Math.floor(Date.now() / 1000) + SESSION_TTL });
+}
+async function getSessionUser(request: Request, env: Env): Promise<SessionUser | null> {
+  const claims = await verifyToken<{ uid: string; email: string }>(env.COOKIE_SECRET, parseCookie(request.headers.get("cookie"), "eh_session"));
+  return claims ? { id: claims.uid, email: claims.email } : null;
+}
+
+// Capability token binding (user, app) — authorizes /s/:id/api/* (NOT the ambient cookie).
+async function mintAppToken(env: Env, appId: string, userId: string): Promise<string> {
+  return signToken(env.CAP_SECRET, { a: appId, u: userId, exp: Math.floor(Date.now() / 1000) + 60 * 60 });
+}
+async function verifyAppToken(env: Env, token: string | null): Promise<{ a: string; u: string } | null> {
+  return verifyToken<{ a: string; u: string }>(env.CAP_SECRET, token);
+}
+
+// Google OAuth (used by the web session; the MCP side reuses the same client in Phase 2).
+function googleAuthUrl(env: Env, redirectUri: string, state: string): string {
+  const p = new URLSearchParams({
+    client_id: env.GOOGLE_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "openid email profile",
+    state,
+    prompt: "select_account",
+  });
+  return "https://accounts.google.com/o/oauth2/v2/auth?" + p.toString();
+}
+async function googleUserFromCode(env: Env, code: string, redirectUri: string): Promise<SessionUser | null> {
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+    }),
+  });
+  if (!res.ok) return null;
+  const tok = (await res.json()) as { id_token?: string };
+  if (!tok.id_token) return null;
+  const parts = tok.id_token.split(".");
+  if (parts.length < 2) return null;
+  try {
+    const payload = JSON.parse(b64urlToStr(parts[1])) as { sub?: string; email?: string };
+    if (!payload.sub) return null;
+    return { id: payload.sub, email: payload.email || "" };
+  } catch {
+    return null;
+  }
+}
+
+// Owner index (SITES is keyed by app id; this maps owner -> app ids for the dashboard).
+async function indexAddApp(env: Env, owner: string, appId: string): Promise<void> {
+  const key = `owner:${owner}`;
+  const arr = JSON.parse((await env.SITES.get(key)) || "[]") as string[];
+  if (!arr.includes(appId)) {
+    arr.push(appId);
+    await env.SITES.put(key, JSON.stringify(arr));
+  }
+}
+async function indexRemoveApp(env: Env, owner: string, appId: string): Promise<void> {
+  const key = `owner:${owner}`;
+  const arr = JSON.parse((await env.SITES.get(key)) || "[]") as string[];
+  await env.SITES.put(key, JSON.stringify(arr.filter((x) => x !== appId)));
+}
+async function listOwnerApps(env: Env, owner: string): Promise<{ id: string; name?: string; visibility: string }[]> {
+  const arr = JSON.parse((await env.SITES.get(`owner:${owner}`)) || "[]") as string[];
+  const out: { id: string; name?: string; visibility: string }[] = [];
+  for (const id of arr) {
+    const s = await getSite(env, id);
+    if (s) out.push({ id, name: s.name, visibility: s.visibility || "unlisted" });
+  }
+  return out;
+}
+
 // Cheap heuristics surfaced back to the AI so it can self-correct via update_app.
 function lint(html: string): string[] {
   const w: string[] = [];
@@ -125,9 +271,9 @@ export class AppBackend extends Agent<Env> {
   }
 
   // Single RPC entrypoint the Worker forwards /s/:id/api/* calls to.
-  async apiCall(method: string, path: string, query: Record<string, string>, body: any, appId: string): Promise<ApiResult> {
+  async apiCall(method: string, path: string, query: Record<string, string>, body: any, appId: string, userNs?: string): Promise<ApiResult> {
     this.ensure();
-    const ns = "shared"; // POC: one shared bucket per app (ns column kept for future per-user mode)
+    const ns = userNs || "shared"; // signed-in user id, or "shared" for anonymous (keeps legacy data resolvable)
     try {
       if (path === "config" && method === "GET") {
         return { status: 200, json: { vapidPublicKey: this.env.VAPID_PUBLIC_KEY || "", appId, userId: ns } };
@@ -411,11 +557,12 @@ function escapeAttr(s: string): string {
 }
 
 // Relative URLs only, so the same block works for every site id under /s/:id/.
-function injectBlock(name: string, theme: string): string {
+function injectBlock(name: string, theme: string, token: string): string {
   const t = escapeAttr(theme);
   const n = escapeAttr(name);
   return (
     `<base href="./">` +
+    `<script>window.__EH_TOKEN__=${JSON.stringify(token)}</script>` +
     `<link rel="manifest" href="manifest.webmanifest">` +
     `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">` +
     `<meta name="theme-color" content="${t}">` +
@@ -429,8 +576,8 @@ function injectBlock(name: string, theme: string): string {
   );
 }
 
-function serveApp(site: Site): Response {
-  const block = injectBlock(site.name || DEFAULT_NAME, site.theme_color || DEFAULT_THEME);
+function serveApp(site: Site, token: string): Response {
+  const block = injectBlock(site.name || DEFAULT_NAME, site.theme_color || DEFAULT_THEME, token);
   const html = site.html;
   const lower = html.toLowerCase();
   const headers = { "content-type": "text/html;charset=utf-8" };
@@ -525,6 +672,7 @@ const SDK_JS = `(function(){
   function api(method,path,opts){
     opts=opts||{};
     var init={method:method,headers:{}};
+    init.headers['authorization']='Bearer '+(window.__EH_TOKEN__||'');
     if(opts.body!==undefined){init.headers['content-type']='application/json';init.body=JSON.stringify(opts.body)}
     var q=opts.query?('?'+new URLSearchParams(opts.query)):'';
     return fetch('api/'+path+q,init).then(function(r){return r.json()});
@@ -742,6 +890,7 @@ $('go').addEventListener('click',async function(){
     var res=await fetch('/api/create',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({html:html,name:$('name').value.trim()||undefined,theme_color:$('theme').value.trim()||undefined})});
     var data=await res.json();
+    if(res.status===401){window.location='/auth/login?next=%2F';return}
     if(!res.ok)throw new Error(data.error||'failed');
     $('link').textContent=data.url;$('link').href=data.url;
     $('out').classList.add('show');
@@ -770,6 +919,9 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
   const html = typeof payload.html === "string" ? payload.html : "";
   if (!html.trim()) return json({ error: "html is required" }, 400);
 
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "Sign in to publish.", login: "/auth/login" }, 401);
+
   const closed = serviceClosedReason(env);
   if (closed) return json({ error: closed }, 503);
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
@@ -780,9 +932,12 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
     html,
     name: typeof payload.name === "string" ? payload.name.slice(0, 60) : undefined,
     theme_color: typeof payload.theme_color === "string" ? payload.theme_color.slice(0, 16) : undefined,
+    owner: user.id,
+    visibility: "unlisted",
   };
   const id = genId();
   await env.SITES.put(id, JSON.stringify(site));
+  await indexAddApp(env, user.id, id);
   return json({ id, url: `${new URL(request.url).origin}/s/${id}/` });
 }
 
@@ -796,9 +951,126 @@ async function handleApi(request: Request, env: Env, id: string, apiPath: string
     }
   }
   const query = Object.fromEntries(url.searchParams);
+
+  // Capability token authorizes /s/:id/api/* and must match THIS app id (blocks cross-app reads).
+  const auth = request.headers.get("authorization") || "";
+  const claims = await verifyAppToken(env, auth.startsWith("Bearer ") ? auth.slice(7) : null);
+  if (!claims || claims.a !== id) return json({ error: "unauthorized" }, 401);
+
   const stub = await getAgentByName(env.APP_OBJECT, id);
-  const r = (await (stub as unknown as AppBackend).apiCall(request.method, apiPath, query, body, id)) as ApiResult;
+  const r = (await (stub as unknown as AppBackend).apiCall(request.method, apiPath, query, body, id, claims.u)) as ApiResult;
   return new Response(JSON.stringify(r.json), { status: r.status, headers: { "content-type": "application/json" } });
+}
+
+function redirectTo(location: string, setCookie?: string): Response {
+  const headers: Record<string, string> = { Location: location };
+  if (setCookie) headers["Set-Cookie"] = setCookie;
+  return new Response(null, { status: 302, headers });
+}
+function safeJson(v: unknown): string {
+  return JSON.stringify(v).replace(/</g, "\\u003c");
+}
+
+// ---------- auth (web session via Google) ----------
+async function handleAuthLogin(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const next = url.searchParams.get("next") || "/dashboard";
+  const state = await signToken(env.COOKIE_SECRET, {
+    next,
+    n: b64url(crypto.getRandomValues(new Uint8Array(8))),
+    exp: Math.floor(Date.now() / 1000) + 600,
+  });
+  return redirectTo(googleAuthUrl(env, `${url.origin}/auth/callback`, state));
+}
+async function handleAuthCallback(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const st = await verifyToken<{ next: string }>(env.COOKIE_SECRET, url.searchParams.get("state"));
+  if (!code || !st) return new Response("Invalid OAuth state", { status: 400 });
+  const user = await googleUserFromCode(env, code, `${url.origin}/auth/callback`);
+  if (!user) return new Response("Google sign-in failed", { status: 400 });
+  await env.SITES.put(`user:${user.id}`, JSON.stringify(user));
+  const next = st.next && st.next.startsWith("/") ? st.next : "/dashboard";
+  return redirectTo(next, sessionCookie(await signSession(env, user), SESSION_TTL));
+}
+
+// ---------- dashboard + owner app management ----------
+function renderDashboard(user: SessionUser, apps: { id: string; name?: string; visibility: string }[]): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>easy_host — dashboard</title>
+<style>
+  :root{--bg:#0b0b10;--fg:#e7e7ee;--mut:#9aa0b0;--ac:#4f46e5;--card:#15151d;--line:#2a2a36}
+  *{box-sizing:border-box}body{margin:0;font:16px/1.5 system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--fg);display:flex;justify-content:center;padding:32px 16px}
+  main{width:100%;max-width:680px}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+  h1{font-size:22px;margin:0}.mut{color:var(--mut);font-size:13px}
+  a{color:#a5b4fc}
+  .row{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px}
+  .row h3{margin:0 0 4px;font-size:16px}
+  .ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+  select,button{background:#0f0f17;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit;cursor:pointer}
+  button.del{border-color:#5b2330;color:#ff9aa8}
+  .empty{color:var(--mut);padding:24px 0}
+</style></head><body><main>
+<header><h1>Your apps</h1><div class="mut">${escapeAttr(user.email)} · <a href="/auth/logout">log out</a></div></header>
+<div id="list"></div>
+<p class="mut">Build new apps by asking your AI (connector) or via the <a href="/">paste form</a>.</p>
+<script>
+var APPS=${safeJson(apps)};
+var list=document.getElementById('list');
+function render(){
+  if(!APPS.length){list.innerHTML='<div class="empty">No apps yet.</div>';return}
+  list.innerHTML=APPS.map(function(a){
+    var url=location.origin+'/s/'+a.id+'/';
+    return '<div class="row" data-id="'+a.id+'"><h3>'+(a.name||'(untitled)')+'</h3>'+
+      '<div class="mut"><a href="'+url+'" target="_blank">'+url+'</a></div>'+
+      '<div class="ctl"><select class="vis">'+
+        ['unlisted','private','public'].map(function(v){return '<option value="'+v+'"'+(a.visibility===v?' selected':'')+'>'+v+'</option>'}).join('')+
+      '</select><button class="copy">Copy link</button><button class="del">Delete</button></div></div>';
+  }).join('');
+}
+render();
+list.addEventListener('change',function(e){
+  if(!e.target.classList.contains('vis'))return;
+  var id=e.target.closest('.row').dataset.id;
+  fetch('/api/apps/'+id+'/visibility',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({visibility:e.target.value})});
+});
+list.addEventListener('click',function(e){
+  var rowEl=e.target.closest('.row');if(!rowEl)return;var id=rowEl.dataset.id;
+  if(e.target.classList.contains('copy')){navigator.clipboard.writeText(location.origin+'/s/'+id+'/');e.target.textContent='Copied!';setTimeout(function(){e.target.textContent='Copy link'},1200)}
+  if(e.target.classList.contains('del')){if(!confirm('Delete this app?'))return;fetch('/api/apps/'+id,{method:'DELETE'}).then(function(){APPS=APPS.filter(function(a){return a.id!==id});render()})}
+});
+</script></main></body></html>`;
+}
+async function handleDashboard(request: Request, env: Env): Promise<Response> {
+  const user = await getSessionUser(request, env);
+  if (!user) return redirectTo("/auth/login?next=%2Fdashboard");
+  return new Response(renderDashboard(user, await listOwnerApps(env, user.id)), { headers: { "content-type": "text/html;charset=utf-8" } });
+}
+async function handleAppsApi(request: Request, env: Env, sub: string): Promise<Response> {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  if (sub === "" && request.method === "GET") return json({ email: user.email, apps: await listOwnerApps(env, user.id) });
+
+  const mVis = sub.match(/^\/([A-Za-z0-9_-]+)\/visibility$/);
+  if (mVis && request.method === "POST") {
+    const site = await getSite(env, mVis[1]);
+    if (!site || site.owner !== user.id) return json({ error: "not found" }, 404);
+    const b = (await request.json().catch(() => ({}))) as { visibility?: string };
+    if (b.visibility !== "unlisted" && b.visibility !== "private" && b.visibility !== "public") return json({ error: "bad visibility" }, 400);
+    site.visibility = b.visibility;
+    await env.SITES.put(mVis[1], JSON.stringify(site));
+    return json({ ok: true });
+  }
+  const mDel = sub.match(/^\/([A-Za-z0-9_-]+)$/);
+  if (mDel && request.method === "DELETE") {
+    const site = await getSite(env, mDel[1]);
+    if (!site || site.owner !== user.id) return json({ error: "not found" }, 404);
+    await env.SITES.delete(mDel[1]);
+    await indexRemoveApp(env, user.id, mDel[1]);
+    return json({ ok: true });
+  }
+  return json({ error: "not found" }, 404);
 }
 
 // ---------- main router ----------
@@ -807,9 +1079,16 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // MCP connector endpoints (Streamable HTTP + legacy SSE).
+    // MCP connector endpoint (Streamable HTTP).
     if (path === "/mcp") return EasyHostMCP.serve("/mcp").fetch(request, env, ctx);
-    if (path === "/sse" || path === "/sse/message") return EasyHostMCP.serveSSE("/sse").fetch(request, env, ctx);
+
+    // Auth + account surfaces.
+    if (path === "/auth/login") return handleAuthLogin(request, env);
+    if (path === "/auth/callback") return handleAuthCallback(request, env);
+    if (path === "/auth/logout") return redirectTo("/", CLEAR_SESSION_COOKIE);
+    if (path === "/dashboard") return handleDashboard(request, env);
+    if (path === "/api/apps") return handleAppsApi(request, env, "");
+    if (path.startsWith("/api/apps/")) return handleAppsApi(request, env, path.slice("/api/apps".length));
 
     if (path === "/" && request.method === "GET") {
       return new Response(LANDING, { headers: { "content-type": "text/html;charset=utf-8" } });
@@ -821,7 +1100,7 @@ export default {
     if (m) {
       const id = m[1];
       const sub = m[2]; // undefined => no trailing slash
-      if (sub === undefined) return Response.redirect(`${url.origin}/s/${id}/`, 301);
+      if (sub === undefined) return redirectTo(`${url.origin}/s/${id}/`);
 
       if (sub.startsWith("/api/")) return handleApi(request, env, id, sub.slice("/api/".length), url);
       if (sub === "/icon-192.png") return serveIcon(192);
@@ -832,8 +1111,16 @@ export default {
 
       const site = await getSite(env, id);
       if (!site) return new Response("Not found", { status: 404 });
-      if (sub === "/") return serveApp(site);
       if (sub === "/manifest.webmanifest") return manifest(site);
+
+      // HTML-serving: "/" or any unknown subpath (SPA fallback). Enforce private + mint a scoped token.
+      if (request.method === "GET") {
+        const u = await getSessionUser(request, env);
+        if (site.visibility === "private" && (!u || u.id !== site.owner)) {
+          return redirectTo(`/auth/login?next=${encodeURIComponent(path)}`);
+        }
+        return serveApp(site, await mintAppToken(env, id, u?.id || "shared"));
+      }
       return new Response("Not found", { status: 404 });
     }
 
