@@ -5,7 +5,6 @@ import { escapeAttr, safeJson } from "./util";
 // Brand favicon for the easy_host site itself (the apps under /s/:id/ get their own generated icons).
 export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><text x="32" y="37" font-size="52" text-anchor="middle" dominant-baseline="central">🚀</text></svg>`;
 const FAVICON_LINK = `<link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">`;
-const GH = "https://github.com/Ricky610329/easy_host";
 
 // Shared minimal style: monospace, near-monochrome, generous whitespace. No chromatic accent.
 const BASE_CSS = `
@@ -39,8 +38,11 @@ ${BASE_CSS}
   .row{display:flex;gap:12px}.row>div{flex:1}
   textarea{min-height:180px;font-size:13px;resize:vertical}
   .file{margin-top:14px;color:var(--mut);font-size:12px}
-  #go{margin-top:24px;width:100%;background:var(--btn);color:var(--btnfg);border:0;border-radius:8px;padding:12px;font:inherit;font-weight:600;cursor:pointer;transition:opacity .15s}
-  #go:hover{opacity:.88}#go:disabled{opacity:.4;cursor:default}
+  .filebtn{display:inline-block;margin:0;border:1px solid var(--line);background:var(--field);color:var(--fg);border-radius:7px;padding:7px 12px;font-size:12px;cursor:pointer}
+  .filebtn:hover{border-color:#3a3a40}
+  #fname{color:var(--mut);font-size:12px;margin-left:8px}
+  #go{margin-top:24px;width:100%;background:transparent;color:var(--fg);border:1px solid #2e2e34;border-radius:8px;padding:13px;font:inherit;font-weight:600;letter-spacing:.3px;cursor:pointer;transition:background .15s,border-color .15s}
+  #go:hover{background:#141416;border-color:#45454d}#go:disabled{opacity:.4;cursor:default}
   #out{margin-top:24px;border:1px solid var(--line);border-radius:8px;padding:14px;display:none}
   #out.show{display:block}
   #link{display:block;word-break:break-all;margin:6px 0 12px}
@@ -53,7 +55,7 @@ ${BASE_CSS}
 <div class="wrap">
   <header class="top">
     <div class="brand">ship it <span>🚀</span></div>
-    <nav><a href="/dashboard">Dashboard</a><a href="${GH}" target="_blank" rel="noopener">GitHub</a></nav>
+    <nav><a href="/dashboard">Dashboard</a></nav>
   </header>
 
   <h1>Ship a real app to your phone.</h1>
@@ -65,7 +67,7 @@ ${BASE_CSS}
   </div>
   <label>HTML — paste below, or choose a .html file</label>
   <textarea id="html" placeholder="<!doctype html>..."></textarea>
-  <div class="file"><input id="file" type="file" accept=".html,text/html"></div>
+  <div class="file"><label class="filebtn" for="file">Choose .html file</label><span id="fname">No file chosen</span><input id="file" type="file" accept=".html,text/html" style="display:none"></div>
   <button id="go">Create app link</button>
 
   <div id="out">
@@ -75,12 +77,12 @@ ${BASE_CSS}
     <p class="hint">Open this link on your phone, then <b>Add to Home Screen</b> (iOS Safari) or <b>Install</b> (Android Chrome).</p>
   </div>
 
-  <footer>Open source · MIT · <a href="${GH}" target="_blank" rel="noopener">github.com/Ricky610329/easy_host</a></footer>
+  <footer>Open source · MIT</footer>
 </div>
 <script>
 var $=function(id){return document.getElementById(id)};
 $('file').addEventListener('change',function(e){
-  var f=e.target.files[0];if(!f)return;
+  var f=e.target.files[0];$('fname').textContent=f?f.name:'No file chosen';if(!f)return;
   var r=new FileReader();r.onload=function(){$('html').value=r.result};r.readAsText(f);
 });
 $('go').addEventListener('click',async function(){
