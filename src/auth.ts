@@ -2,12 +2,27 @@
 import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 import type { Env, SessionUser } from "./types";
 import { b64url, parseCookie, redirectTo, signToken, verifyToken } from "./util";
+import { baseUrl, cookieDomainAttr } from "./store";
 
 export const SESSION_TTL = 60 * 60 * 24 * 30;
-export const CLEAR_SESSION_COOKIE = "eh_session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0";
 
-function sessionCookie(value: string, maxAge: number): string {
-  return `eh_session=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAge}`;
+function sessionCookie(env: Env, value: string, maxAge: number): string {
+  return `eh_session=${encodeURIComponent(value)}; HttpOnly; Secure; SameSite=Lax; Path=/${cookieDomainAttr(env)}; Max-Age=${maxAge}`;
+}
+export function clearSessionCookie(env: Env): string {
+  return `eh_session=; HttpOnly; Secure; SameSite=Lax; Path=/${cookieDomainAttr(env)}; Max-Age=0`;
+}
+// Accept a path, or an https URL within our zone (apex or any <sub>.apex). Default /dashboard.
+function safeNext(env: Env, next: string | undefined): string {
+  if (next && next.startsWith("/")) return next;
+  if (next) {
+    try {
+      const u = new URL(next);
+      const apex = new URL(baseUrl(env)).hostname;
+      if (u.protocol === "https:" && (u.hostname === apex || u.hostname.endsWith("." + apex))) return next;
+    } catch {}
+  }
+  return "/dashboard";
 }
 
 async function signSession(env: Env, u: SessionUser): Promise<string> {
@@ -83,8 +98,7 @@ export async function handleAuthCallback(request: Request, env: Env): Promise<Re
   const user = await googleUserFromCode(env, code, `${url.origin}/auth/callback`);
   if (!user) return new Response("Google sign-in failed", { status: 400 });
   await env.SITES.put(`user:${user.id}`, JSON.stringify(user));
-  const next = st.next && st.next.startsWith("/") ? st.next : "/dashboard";
-  return redirectTo(next, sessionCookie(await signSession(env, user), SESSION_TTL));
+  return redirectTo(safeNext(env, st.next), sessionCookie(env, await signSession(env, user), SESSION_TTL));
 }
 
 // ---------- MCP connector OAuth (provider delegates /authorize here; Google is the upstream IdP) ----------

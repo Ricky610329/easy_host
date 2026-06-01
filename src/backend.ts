@@ -8,10 +8,25 @@ export type ApiResult = { status: number; json: unknown };
 
 const PUSH_TTL = 3600;
 const MAX_VALUE_BYTES = 64 * 1024;
+const MAX_KEYS = 1000; // per ns, to bound storage
 const MAX_REMINDERS = 50; // per app, to bound DO alarm usage
+const NOTIFY_PER_MIN = 30; // immediate-send rate cap per app
 
 export class AppBackend extends Agent<Env> {
   private schemaReady = false;
+  private rlWin = 0; // fixed 1-min window for immediate-notify rate limiting
+  private rlN = 0;
+
+  private notifyAllowed(): boolean {
+    const w = Math.floor(Date.now() / 60000);
+    if (w !== this.rlWin) {
+      this.rlWin = w;
+      this.rlN = 0;
+    }
+    if (this.rlN >= NOTIFY_PER_MIN) return false;
+    this.rlN++;
+    return true;
+  }
 
   private ensure() {
     if (this.schemaReady) return;
@@ -43,6 +58,7 @@ export class AppBackend extends Agent<Env> {
         return { status: 200, json: { ok: true } };
       }
       if (path === "notify" && method === "POST") {
+        if (!this.notifyAllowed()) return { status: 429, json: { error: "notify rate limit (30/min)" } };
         return { status: 200, json: { sent: await this.sendToAll(ns, body || {}) } };
       }
       if (path === "reminders" && method === "POST") {
@@ -64,6 +80,11 @@ export class AppBackend extends Agent<Env> {
         if (!k) return { status: 400, json: { error: "key required" } };
         const v = JSON.stringify(body?.value ?? null);
         if (v.length > MAX_VALUE_BYTES) return { status: 413, json: { error: "value too large" } };
+        const exists = this.sql`SELECT 1 FROM kv WHERE ns = ${ns} AND k = ${k}`.length > 0;
+        if (!exists) {
+          const cnt = this.sql<{ c: number }>`SELECT COUNT(*) AS c FROM kv WHERE ns = ${ns}`[0].c;
+          if (cnt >= MAX_KEYS) return { status: 413, json: { error: "too many keys (max 1000)" } };
+        }
         this.sql`INSERT OR REPLACE INTO kv (ns, k, v, updated) VALUES (${ns}, ${k}, ${v}, ${Date.now()})`;
         return { status: 200, json: { ok: true } };
       }

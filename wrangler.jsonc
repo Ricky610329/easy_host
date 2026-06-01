@@ -6,8 +6,12 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
   "workers_dev": true,
-  // Custom domain (zone is active on Cloudflare). Wrangler provisions the DNS record + TLS cert on deploy.
-  "routes": [{ "pattern": "ship-it-app.com", "custom_domain": true }],
+  // Apex = account/site (custom domain). Wildcard = per-app subdomains <id>.ship-it-app.com (origin isolation).
+  // Needs a proxied "*" DNS record in the ship-it-app.com zone; Universal SSL covers *.ship-it-app.com.
+  "routes": [
+    { "pattern": "ship-it-app.com", "custom_domain": true },
+    { "pattern": "*.ship-it-app.com/*", "zone_name": "ship-it-app.com" }
+  ],
 
   // Stores each published site as JSON { html, name, theme_color }.
   // Replace "id" with the value printed by:  npx wrangler kv namespace create SITES

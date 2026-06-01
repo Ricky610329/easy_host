@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Env, Site } from "./types";
 import { genId } from "./util";
-import { MAX_HTML_BYTES, baseUrl, getSite, indexAddApp, reserveAppSlot, serviceClosedReason, userAppCapReached } from "./store";
+import { MAX_HTML_BYTES, appUrl, getSite, indexAddApp, reserveAppSlot, serviceClosedReason, userAppCapReached } from "./store";
 
 // ---------- the build guide handed to the AI (no backticks: this is a template literal) ----------
 const BUILD_GUIDE = [
@@ -136,7 +136,7 @@ export class EasyHostMCP extends McpAgent<Env> {
         const id = genId();
         await this.env.SITES.put(id, JSON.stringify(site));
         await indexAddApp(this.env, owner, id);
-        const url = `${baseUrl(this.env)}/s/${id}/`;
+        const url = appUrl(this.env, id);
         return {
           content: [
             {
@@ -176,7 +176,7 @@ export class EasyHostMCP extends McpAgent<Env> {
         const site: Site = { html, name: name ?? existing.name, theme_color: theme_color ?? existing.theme_color, icon: icon?.slice(0, 2) ?? existing.icon, owner, visibility: existing.visibility === "public" ? "public" : "private" };
         await this.env.SITES.put(id, JSON.stringify(site));
         await indexAddApp(this.env, owner, id);
-        const url = `${baseUrl(this.env)}/s/${id}/`;
+        const url = appUrl(this.env, id);
         return {
           content: [
             {

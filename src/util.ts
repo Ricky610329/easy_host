@@ -1,12 +1,13 @@
 // Generic, env-free helpers (crypto, encoding, signed tokens, small HTTP helpers).
 
-// 9 random bytes -> 12-char base64url. Unguessable: the only access control on a raw app URL.
+// 8 random bytes -> 16-char lowercase hex. DNS-label-safe (usable as a subdomain) and
+// case-insensitive; unguessable (64-bit) — the only access control on a raw app URL.
 export function genId(): string {
-  const bytes = new Uint8Array(9);
+  const bytes = new Uint8Array(8);
   crypto.getRandomValues(bytes);
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  let h = "";
+  for (const b of bytes) h += b.toString(16).padStart(2, "0");
+  return h;
 }
 
 export async function sha256hex(s: string): Promise<string> {

@@ -16,6 +16,46 @@ export async function getSite(env: Env, id: string): Promise<Site | null> {
 export function baseUrl(env: Env): string {
   return (env.PUBLIC_BASE_URL || "http://localhost:8787").replace(/\/+$/, "");
 }
+export function accountOrigin(env: Env): string {
+  return baseUrl(env);
+}
+function apexHost(env: Env): string {
+  try {
+    return new URL(baseUrl(env)).hostname;
+  } catch {
+    return "localhost";
+  }
+}
+// Subdomain isolation is on only for a real custom domain; workers.dev / localhost stay path-mode.
+export function subdomainMode(env: Env): boolean {
+  const h = apexHost(env);
+  return !(h.endsWith(".workers.dev") || h === "localhost" || /^[0-9.]+$/.test(h));
+}
+// The public URL of an app: <id>.<apex> in subdomain mode, else <base>/s/<id>/.
+export function appUrl(env: Env, id: string): string {
+  return subdomainMode(env) ? `https://${id}.${apexHost(env)}/` : `${baseUrl(env)}/s/${id}/`;
+}
+// If hostname is a single-label app subdomain (<id>.<apex>), return the id, else null.
+export function appHostId(env: Env, hostname: string): string | null {
+  if (!subdomainMode(env)) return null;
+  const apex = apexHost(env);
+  if (hostname === apex || hostname === "www." + apex || !hostname.endsWith("." + apex)) return null;
+  const label = hostname.slice(0, hostname.length - apex.length - 1);
+  return /^[a-z0-9-]+$/.test(label) ? label : null;
+}
+// Share the session cookie across subdomains (so app subdomains can gate private apps); host-only in dev.
+export function cookieDomainAttr(env: Env): string {
+  return subdomainMode(env) ? `; Domain=${apexHost(env)}` : "";
+}
+
+// ---------- operator takedown (block an app id) ----------
+export async function isBlocked(env: Env, id: string): Promise<boolean> {
+  return (await env.SITES.get(`blocked:${id}`)) !== null;
+}
+export async function setBlocked(env: Env, id: string, on: boolean): Promise<void> {
+  if (on) await env.SITES.put(`blocked:${id}`, "1");
+  else await env.SITES.delete(`blocked:${id}`);
+}
 
 // ---------- hosted-demo gate (kill-switch + cap + rate limit) ----------
 // All checks are no-ops unless the corresponding env var is set, so a self-hosted

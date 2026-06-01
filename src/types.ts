@@ -21,6 +21,7 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string;
   COOKIE_SECRET: string; // HMAC key for the session cookie
   CAP_SECRET: string; // HMAC key for per-(user,app) capability tokens
+  ADMIN_TOKEN?: string; // bearer token for operator /admin/* takedown endpoints
 }
 
 export interface SessionUser {
