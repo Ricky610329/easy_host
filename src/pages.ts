@@ -48,6 +48,7 @@ ${BASE_CSS}
   #link{display:block;word-break:break-all;margin:6px 0 12px}
   #copy{background:transparent;border:1px solid var(--line);color:var(--fg);border-radius:7px;padding:7px 12px;font:inherit;cursor:pointer}
   .hint{color:var(--mut);font-size:12px;margin:12px 0 0}
+  .priv{color:var(--mut);font-size:12px;margin:14px 0 0}
   footer{margin-top:44px;color:var(--mut);font-size:12px}
 </style>
 </head>
@@ -69,6 +70,7 @@ ${BASE_CSS}
   <textarea id="html" placeholder="<!doctype html>..."></textarea>
   <div class="file"><label class="filebtn" for="file">Choose .html file</label><span id="fname">No file chosen</span><input id="file" type="file" accept=".html,text/html" style="display:none"></div>
   <button id="go">Create app link</button>
+  <p class="priv">Apps are <b>private by default</b> — only you can open them. Set one to <b>public</b> in your <a href="/dashboard">dashboard</a> to share.</p>
 
   <div id="out">
     <div class="mut" style="color:var(--mut);font-size:12px">Your app is live at</div>
