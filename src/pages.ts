@@ -3,8 +3,8 @@ import type { SessionUser } from "./types";
 import { escapeAttr, safeJson } from "./util";
 
 // Brand favicon for the easy_host site itself (the apps under /s/:id/ get their own generated icons).
-export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#141416"/><text x="32" y="35" font-size="36" text-anchor="middle" dominant-baseline="central">🚀</text></svg>`;
-const FAVICON_LINK = `<link rel="icon" href="/favicon.svg" type="image/svg+xml">`;
+export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><text x="32" y="37" font-size="52" text-anchor="middle" dominant-baseline="central">🚀</text></svg>`;
+const FAVICON_LINK = `<link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">`;
 const GH = "https://github.com/Ricky610329/easy_host";
 
 // Shared minimal style: monospace, near-monochrome, generous whitespace. No chromatic accent.
