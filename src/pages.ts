@@ -23,7 +23,8 @@ const BASE_CSS = `
   input:focus,textarea:focus{outline:none;border-color:#3a3a40}
 `;
 
-export const LANDING = `<!doctype html>
+export function renderLanding(user: SessionUser | null): string {
+  return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -49,6 +50,10 @@ ${BASE_CSS}
   #copy{background:transparent;border:1px solid var(--line);color:var(--fg);border-radius:7px;padding:7px 12px;font:inherit;cursor:pointer}
   .hint{color:var(--mut);font-size:12px;margin:12px 0 0}
   .priv{color:var(--mut);font-size:12px;margin:14px 0 0}
+  .signin{display:inline-block;border:1px solid var(--line);background:var(--field);color:var(--fg);border-radius:8px;padding:8px 14px;font-size:13px}
+  .signin:hover{border-color:#45454d;text-decoration:none}
+  header.top nav .who{color:var(--mut);font-size:12px;margin-right:4px}
+  #authnote{display:none;margin-top:16px;border:1px solid #45454d;border-radius:8px;padding:16px;font-size:13px;color:var(--fg)}
   footer{margin-top:44px;color:var(--mut);font-size:12px}
 </style>
 </head>
@@ -56,7 +61,7 @@ ${BASE_CSS}
 <div class="wrap">
   <header class="top">
     <div class="brand">ship it <span>🚀</span></div>
-    <nav><a href="/dashboard">Dashboard</a></nav>
+    <nav>${user ? `<span class="who">${escapeAttr(user.email)}</span><a href="/dashboard">Dashboard</a><a href="/auth/logout">Log out</a>` : `<a class="signin" href="/auth/login?next=%2F">Sign in with Google</a>`}</nav>
   </header>
 
   <h1>Ship a real app to your phone.</h1>
@@ -71,6 +76,8 @@ ${BASE_CSS}
   <div class="file"><label class="filebtn" for="file">Choose .html file</label><span id="fname">No file chosen</span><input id="file" type="file" accept=".html,text/html" style="display:none"></div>
   <button id="go">Create app link</button>
   <p class="priv">Apps are <b>private by default</b> — only you can open them. Set one to <b>public</b> in your <a href="/dashboard">dashboard</a> to share.</p>
+
+  <div id="authnote">Sign in to publish your app.<br><a class="signin" href="/auth/login?next=%2F" style="margin-top:10px">Sign in with Google</a></div>
 
   <div id="out">
     <div class="mut" style="color:var(--mut);font-size:12px">Your app is live at</div>
@@ -95,7 +102,7 @@ $('go').addEventListener('click',async function(){
     var res=await fetch('/api/create',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({html:html,name:$('name').value.trim()||undefined,theme_color:$('theme').value.trim()||undefined})});
     var data=await res.json();
-    if(res.status===401){window.location='/auth/login?next=%2F';return}
+    if(res.status===401){$('authnote').style.display='block';return}
     if(!res.ok)throw new Error(data.error||'failed');
     $('link').textContent=data.url;$('link').href=data.url;
     $('out').classList.add('show');
@@ -109,6 +116,7 @@ $('copy').addEventListener('click',function(){
 </script>
 </body>
 </html>`;
+}
 
 export function renderDashboard(user: SessionUser, apps: { id: string; name?: string; visibility: string }[]): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
