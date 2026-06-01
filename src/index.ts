@@ -31,7 +31,7 @@ import {
   mintAppToken,
   verifyAppToken,
 } from "./auth";
-import { manifest, serveApp, serveIcon, serveSW, serveSdk } from "./pwa";
+import { manifest, serveApp, serveIcon, serveSW, serveSdk, serveSiteIcon, serveSiteSW, siteManifest } from "./pwa";
 import { FAVICON_SVG, renderLanding, renderDashboard } from "./pages";
 import { AppBackend, type ApiResult } from "./backend";
 import { EasyHostMCP } from "./mcp";
@@ -186,6 +186,12 @@ const appRouter: ExportedHandler<Env> = {
     if (path === "/favicon.svg") {
       return new Response(FAVICON_SVG, { headers: { "content-type": "image/svg+xml; charset=utf-8", "cache-control": "public, max-age=86400" } });
     }
+    // The ship-it site itself is an installable PWA (rocket icon).
+    if (path === "/manifest.webmanifest") return siteManifest();
+    if (path === "/sw.js") return serveSiteSW();
+    if (path === "/icon-192.png") return serveSiteIcon(192);
+    if (path === "/icon-512.png") return serveSiteIcon(512);
+    if (path === "/apple-touch-icon.png") return serveSiteIcon(180);
     if (path === "/auth/login") return handleAuthLogin(request, env);
     if (path === "/auth/callback") return handleAuthCallback(request, env);
     if (path === "/auth/logout") return redirectTo("/", clearSessionCookie(env));

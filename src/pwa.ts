@@ -314,6 +314,11 @@ async function renderIcon(size: number, color: string, glyph: string): Promise<U
     }
   }
 
+  return encodePngRGB(size, raw);
+}
+
+// Assemble a truecolor (RGB, color type 2) PNG from a raw filtered scanline buffer.
+async function encodePngRGB(size: number, raw: Uint8Array): Promise<Uint8Array> {
   const idat = await deflate(raw);
   const ihdr = new Uint8Array(13);
   const dv = new DataView(ihdr.buffer);
@@ -349,4 +354,104 @@ export async function serveIcon(size: number, site: Site | null): Promise<Respon
   return new Response(png.slice(), {
     headers: { "content-type": "image/png", "cache-control": "public, max-age=31536000, immutable" },
   });
+}
+
+// ---------- the ship-it site's own PWA: rocket icon, manifest, service worker ----------
+// A parametric rocket drawn with basic shapes (nose, body, window, fins, flame) on a dark square.
+async function renderRocket(size: number): Promise<Uint8Array> {
+  const S = size;
+  const rowLen = 1 + S * 3;
+  const raw = new Uint8Array(rowLen * S);
+  const BG = [12, 12, 14], BODY = [240, 240, 238], WIN = [90, 170, 255], FIN = [255, 107, 61], FLAME = [255, 176, 59];
+  for (let y = 0; y < S; y++) {
+    const off = y * rowLen;
+    raw[off] = 0;
+    const fy = y / S;
+    for (let x = 0; x < S; x++) {
+      const fx = x / S;
+      const dxc = Math.abs(fx - 0.5);
+      let col = BG;
+      // flame (under the body)
+      if (fy >= 0.7 && fy <= 0.9) {
+        const t = (fy - 0.7) / 0.2;
+        if (dxc <= 0.06 * (1 - t) + 0.004) col = FLAME;
+      }
+      // fins (stick out beyond the body sides)
+      if (fy >= 0.56 && fy <= 0.76) {
+        const t = (fy - 0.56) / 0.2;
+        const outer = 0.09 + 0.19 * t;
+        if (dxc <= outer && dxc >= 0.115) col = FIN;
+      }
+      // body
+      if (fy >= 0.32 && fy <= 0.7 && dxc <= 0.135) col = BODY;
+      // nose cone
+      if (fy >= 0.15 && fy < 0.32) {
+        const t = (fy - 0.15) / 0.17;
+        if (dxc <= 0.135 * t) col = BODY;
+      }
+      // window
+      const wdx = fx - 0.5, wdy = fy - 0.44;
+      if (wdx * wdx + wdy * wdy <= 0.058 * 0.058) col = WIN;
+      const p = off + 1 + x * 3;
+      raw[p] = col[0];
+      raw[p + 1] = col[1];
+      raw[p + 2] = col[2];
+    }
+  }
+  return encodePngRGB(S, raw);
+}
+
+const rocketCache = new Map<number, Promise<Uint8Array>>();
+export async function serveSiteIcon(size: number): Promise<Response> {
+  let p = rocketCache.get(size);
+  if (!p) {
+    p = renderRocket(size);
+    rocketCache.set(size, p);
+  }
+  return new Response((await p).slice(), {
+    headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" },
+  });
+}
+
+export function siteManifest(): Response {
+  const body = {
+    name: "ship it",
+    short_name: "ship it",
+    start_url: "/",
+    scope: "/",
+    display: "standalone",
+    background_color: "#0c0c0d",
+    theme_color: "#0c0c0d",
+    icons: [
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+    ],
+  };
+  return new Response(JSON.stringify(body), { headers: { "content-type": "application/manifest+json; charset=utf-8" } });
+}
+
+// Tags injected into the apex site's <head> so it installs as a PWA (absolute paths; apex has no <base>).
+export const SITE_PWA_HEAD =
+  `<link rel="manifest" href="/manifest.webmanifest">` +
+  `<meta name="theme-color" content="#0c0c0d">` +
+  `<meta name="mobile-web-app-capable" content="yes">` +
+  `<meta name="apple-mobile-web-app-capable" content="yes">` +
+  `<meta name="apple-mobile-web-app-status-bar-style" content="black">` +
+  `<meta name="apple-mobile-web-app-title" content="ship it">` +
+  `<link rel="apple-touch-icon" href="/apple-touch-icon.png">` +
+  `<script>if('serviceWorker' in navigator)addEventListener('load',function(){navigator.serviceWorker.register('/sw.js')});</script>`;
+
+// Site service worker: network-first; never touches auth/API/MCP; offline-falls-back to "/".
+const SITE_SW_JS = `const C='ship-it-site-v1';
+self.addEventListener('install',function(){self.skipWaiting()});
+self.addEventListener('activate',function(e){e.waitUntil(caches.keys().then(function(k){return Promise.all(k.filter(function(x){return x!==C}).map(function(x){return caches.delete(x)}))}).then(function(){return self.clients.claim()}))});
+self.addEventListener('fetch',function(e){
+  if(e.request.method!=='GET')return;
+  var p=new URL(e.request.url).pathname;
+  if(/^\\/(api|auth|authorize|mcp|admin|token|register)(\\/|$)/.test(p)||p.indexOf('/.well-known')===0)return;
+  e.respondWith(fetch(e.request).then(function(r){var c=r.clone();caches.open(C).then(function(k){k.put(e.request,c)});return r}).catch(function(){return caches.match(e.request).then(function(r){return r||caches.match('/')})}));
+});`;
+export function serveSiteSW(): Response {
+  return new Response(SITE_SW_JS, { headers: { "content-type": "text/javascript; charset=utf-8" } });
 }

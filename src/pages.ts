@@ -1,6 +1,7 @@
 // Server-rendered HTML pages: the manual upload form (/) and the owner dashboard (/dashboard).
 import type { SessionUser } from "./types";
 import { escapeAttr, safeJson } from "./util";
+import { SITE_PWA_HEAD } from "./pwa";
 
 // Brand favicon for the easy_host site itself (the apps under /s/:id/ get their own generated icons).
 export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><text x="32" y="37" font-size="52" text-anchor="middle" dominant-baseline="central">🚀</text></svg>`;
@@ -30,7 +31,7 @@ export function renderLanding(user: SessionUser | null): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ship it</title>
-${FAVICON_LINK}
+${FAVICON_LINK}${SITE_PWA_HEAD}
 <style>
 ${BASE_CSS}
   .wrap{width:100%;max-width:560px;padding:60px 0 80px}
@@ -61,7 +62,7 @@ ${BASE_CSS}
 <div class="wrap">
   <header class="top">
     <div class="brand">ship it <span>🚀</span></div>
-    <nav>${user ? `<span class="who">${escapeAttr(user.email)}</span><a href="/dashboard">Dashboard</a><a href="/auth/logout">Log out</a>` : `<a class="signin" href="/auth/login?next=%2F">Sign in with Google</a>`}</nav>
+    <nav>${user ? `<span class="who">${escapeAttr(user.email)}</span><a href="/dashboard">Dashboard</a>` : `<a class="signin" href="/auth/login?next=%2F">Sign in with Google</a>`}</nav>
   </header>
 
   <h1>Ship a real app to your phone.</h1>
@@ -121,7 +122,7 @@ $('copy').addEventListener('click',function(){
 export function renderDashboard(user: SessionUser, apps: { id: string; name?: string; visibility: string }[]): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>ship it — dashboard</title>
-${FAVICON_LINK}
+${FAVICON_LINK}${SITE_PWA_HEAD}
 <style>
 ${BASE_CSS}
   .wrap{width:100%;max-width:640px;padding:48px 0 80px}
