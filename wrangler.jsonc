@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "easy-host",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // Stores each published site as JSON { html, name, theme_color }.
+  // Replace "id" with the value printed by:  npx wrangler kv namespace create SITES
+  "kv_namespaces": [
+    { "binding": "SITES", "id": "9bca04575f3449adb3c47a2454681c3a" }
+  ],
+
+  // Required by the MCP server (Cloudflare Agents SDK McpAgent runs in a Durable Object).
+  "durable_objects": {
+    "bindings": [{ "name": "MCP_OBJECT", "class_name": "EasyHostMCP" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["EasyHostMCP"] }
+  ],
+
+  // After your first deploy, set this to your Worker's public origin, e.g.
+  // "https://easy-host.<your-account>.workers.dev" — the MCP publish_app tool
+  // uses it to build the absolute app URL it returns to the AI.
+  "vars": {
+    "PUBLIC_BASE_URL": "https://easy-host.ricky-tsou.workers.dev"
+  }
+}
