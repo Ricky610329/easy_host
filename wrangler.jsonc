@@ -5,6 +5,9 @@
   "compatibility_date": "2025-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  "workers_dev": true,
+  // To attach ship-it.com later (once its nameservers point to Cloudflare and the zone is Active):
+  //   "routes": [{ "pattern": "ship-it.com", "custom_domain": true }]
 
   // Stores each published site as JSON { html, name, theme_color }.
   // Replace "id" with the value printed by:  npx wrangler kv namespace create SITES
@@ -26,9 +29,8 @@
     { "tag": "v2", "new_sqlite_classes": ["AppBackend"] }
   ],
 
-  // After your first deploy, set this to your Worker's public origin, e.g.
-  // "https://easy-host.<your-account>.workers.dev" — the MCP publish_app tool
-  // uses it to build the absolute app URL it returns to the AI.
+  // Public origin used by the MCP publish_app tool to build absolute app URLs.
+  // Switch to "https://ship-it.com" once the custom domain is attached.
   "vars": {
     "PUBLIC_BASE_URL": "https://easy-host.ricky-tsou.workers.dev"
   }
