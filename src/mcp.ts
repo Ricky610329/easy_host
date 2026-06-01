@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Env, Site } from "./types";
 import { genId } from "./util";
-import { baseUrl, getSite, indexAddApp, reserveAppSlot, serviceClosedReason } from "./store";
+import { MAX_HTML_BYTES, baseUrl, getSite, indexAddApp, reserveAppSlot, serviceClosedReason, userAppCapReached } from "./store";
 
 // ---------- the build guide handed to the AI (no backticks: this is a template literal) ----------
 const BUILD_GUIDE = [
@@ -125,11 +125,14 @@ export class EasyHostMCP extends McpAgent<Env> {
         if (!html || !html.trim()) return { content: [{ type: "text", text: "Error: html is empty." }], isError: true };
         const owner = (this.props as { id?: string } | undefined)?.id;
         if (!owner) return { content: [{ type: "text", text: "Please sign in: reconnect this easy_host connector and authorize with Google." }], isError: true };
+        if (html.length > MAX_HTML_BYTES) return { content: [{ type: "text", text: "App HTML is too large (max ~2 MB). Trim it and try again." }], isError: true };
         const closed = serviceClosedReason(this.env);
         if (closed) return { content: [{ type: "text", text: closed }], isError: true };
+        if (await userAppCapReached(this.env, owner))
+          return { content: [{ type: "text", text: "You've reached your app limit on this instance. Delete an app in your dashboard, or self-host to raise the cap." }], isError: true };
         if (!(await reserveAppSlot(this.env)))
           return { content: [{ type: "text", text: "This public demo has reached its app limit — deploy your own instance to keep going." }], isError: true };
-        const site: Site = { html, name: name?.slice(0, 60), theme_color: theme_color?.slice(0, 16), icon: icon?.slice(0, 2), owner, visibility: "unlisted" };
+        const site: Site = { html, name: name?.slice(0, 60), theme_color: theme_color?.slice(0, 16), icon: icon?.slice(0, 2), owner, visibility: "private" };
         const id = genId();
         await this.env.SITES.put(id, JSON.stringify(site));
         await indexAddApp(this.env, owner, id);
@@ -140,7 +143,7 @@ export class EasyHostMCP extends McpAgent<Env> {
               type: "text",
               text:
                 `Published. id: ${id}\nInstallable app URL: ${url}\n\n` +
-                `Tell the user to open this link on their phone, then Add to Home Screen (iOS Safari) / Install (Android Chrome).\n` +
+                `This app is PRIVATE by default — only the signed-in owner can open it. The user should open it while signed in (same Google account), then Add to Home Screen (iOS Safari) / Install (Android Chrome). To share it with others, set it to Public in the dashboard.\n` +
                 `To revise this app later, call update_app with id "${id}" — that keeps the user's data, reminders, and icon.` +
                 warnText(lint(html)),
             },
@@ -161,6 +164,7 @@ export class EasyHostMCP extends McpAgent<Env> {
       },
       async ({ id, html, name, theme_color, icon }) => {
         if (!html || !html.trim()) return { content: [{ type: "text", text: "Error: html is empty." }], isError: true };
+        if (html.length > MAX_HTML_BYTES) return { content: [{ type: "text", text: "App HTML is too large (max ~2 MB). Trim it and try again." }], isError: true };
         const owner = (this.props as { id?: string } | undefined)?.id;
         if (!owner) return { content: [{ type: "text", text: "Please sign in: reconnect this easy_host connector and authorize with Google." }], isError: true };
         const closed = serviceClosedReason(this.env);
@@ -169,7 +173,7 @@ export class EasyHostMCP extends McpAgent<Env> {
         if (!existing) return { content: [{ type: "text", text: `Error: no app with id "${id}". Use publish_app to create one.` }], isError: true };
         if (existing.owner && existing.owner !== owner)
           return { content: [{ type: "text", text: "You don't own this app, so it can't be updated from this account." }], isError: true };
-        const site: Site = { html, name: name ?? existing.name, theme_color: theme_color ?? existing.theme_color, icon: icon?.slice(0, 2) ?? existing.icon, owner, visibility: existing.visibility || "unlisted" };
+        const site: Site = { html, name: name ?? existing.name, theme_color: theme_color ?? existing.theme_color, icon: icon?.slice(0, 2) ?? existing.icon, owner, visibility: existing.visibility === "public" ? "public" : "private" };
         await this.env.SITES.put(id, JSON.stringify(site));
         await indexAddApp(this.env, owner, id);
         const url = `${baseUrl(this.env)}/s/${id}/`;

@@ -1,6 +1,8 @@
 // KV-backed app store, the hosted-demo kill-switch, and the per-owner app index.
 import type { Env, Site } from "./types";
 
+export const MAX_HTML_BYTES = 2_000_000; // hard cap on a published page (KV allows 25MiB, but bound abuse)
+
 export async function getSite(env: Env, id: string): Promise<Site | null> {
   const raw = await env.SITES.get(id);
   if (!raw) return null;
@@ -52,6 +54,14 @@ export async function rateLimited(env: Env, ip: string): Promise<boolean> {
   return false;
 }
 
+// Per-account app cap. No cap set => unlimited.
+export async function userAppCapReached(env: Env, owner: string): Promise<boolean> {
+  const max = env.MAX_APPS_PER_USER ? parseInt(env.MAX_APPS_PER_USER, 10) : 0;
+  if (!max) return false;
+  const arr = JSON.parse((await env.SITES.get(`owner:${owner}`)) || "[]") as string[];
+  return arr.length >= max;
+}
+
 // ---------- per-owner app index (SITES is keyed by app id; this maps owner -> app ids) ----------
 export async function indexAddApp(env: Env, owner: string, appId: string): Promise<void> {
   const key = `owner:${owner}`;
@@ -71,7 +81,7 @@ export async function listOwnerApps(env: Env, owner: string): Promise<{ id: stri
   const out: { id: string; name?: string; visibility: string }[] = [];
   for (const id of arr) {
     const s = await getSite(env, id);
-    if (s) out.push({ id, name: s.name, visibility: s.visibility || "unlisted" });
+    if (s) out.push({ id, name: s.name, visibility: s.visibility === "private" ? "private" : "public" });
   }
   return out;
 }

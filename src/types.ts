@@ -12,7 +12,8 @@ export interface Env {
   // Hosted-demo kill-switch (all optional; unset => unrestricted, so self-hosters are unaffected).
   SERVICE_OPEN?: string; // "false" closes new publishing
   SERVICE_OPEN_UNTIL?: string; // ISO timestamp; publishing closes after it
-  MAX_APPS?: string; // numeric cap on total published apps
+  MAX_APPS?: string; // numeric cap on total published apps (whole instance)
+  MAX_APPS_PER_USER?: string; // numeric cap on apps per account
   // Accounts (Google): web session + MCP OAuth.
   OAUTH_KV: KVNamespace; // used by @cloudflare/workers-oauth-provider
   OAUTH_PROVIDER: OAuthHelpers; // injected by the provider into env
@@ -33,5 +34,5 @@ export interface Site {
   theme_color?: string;
   icon?: string; // optional monogram char(s) for the generated lettermark icon
   owner?: string; // Google sub of the publisher; undefined => legacy/anonymous
-  visibility?: "unlisted" | "private" | "public"; // default unlisted
+  visibility?: "private" | "public"; // default private; anything not "private" serves openly by link
 }

@@ -8,6 +8,7 @@ export type ApiResult = { status: number; json: unknown };
 
 const PUSH_TTL = 3600;
 const MAX_VALUE_BYTES = 64 * 1024;
+const MAX_REMINDERS = 50; // per app, to bound DO alarm usage
 
 export class AppBackend extends Agent<Env> {
   private schemaReady = false;
@@ -83,6 +84,7 @@ export class AppBackend extends Agent<Env> {
   }
 
   private async scheduleReminder(ns: string, b: any): Promise<string> {
+    if ((await this.listSchedules()).length >= MAX_REMINDERS) throw new Error("Reminder limit reached (50). Cancel some first.");
     const payload = { ns, title: String(b.title || "Reminder"), body: String(b.body || ""), url: b.url ? String(b.url) : "./" };
     if (b.everyMinutes) {
       const sec = Math.max(60, Math.round(Number(b.everyMinutes) * 60));

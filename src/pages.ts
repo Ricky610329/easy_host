@@ -136,7 +136,7 @@ function render(){
     return '<div class="card" data-id="'+a.id+'"><h3>'+(a.name||'(untitled)')+'</h3>'+
       '<div class="mut" style="color:#7c7c82;font-size:12px"><a href="'+url+'" target="_blank">'+url+'</a></div>'+
       '<div class="ctl"><select class="vis">'+
-        ['unlisted','private','public'].map(function(v){return '<option value="'+v+'"'+(a.visibility===v?' selected':'')+'>'+v+'</option>'}).join('')+
+        ['private','public'].map(function(v){return '<option value="'+v+'"'+(a.visibility===v?' selected':'')+'>'+v+'</option>'}).join('')+
       '</select><button class="copy">Copy link</button><button class="del">Delete</button></div></div>';
   }).join('');
 }

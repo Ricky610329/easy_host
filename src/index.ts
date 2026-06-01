@@ -4,7 +4,7 @@ import { getAgentByName } from "agents";
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import type { Env, Site } from "./types";
 import { genId, json, redirectTo } from "./util";
-import { getSite, indexAddApp, indexRemoveApp, listOwnerApps, rateLimited, reserveAppSlot, serviceClosedReason } from "./store";
+import { MAX_HTML_BYTES, getSite, indexAddApp, indexRemoveApp, listOwnerApps, rateLimited, reserveAppSlot, serviceClosedReason, userAppCapReached } from "./store";
 import {
   CLEAR_SESSION_COOKIE,
   getSessionUser,
@@ -33,6 +33,7 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
   }
   const html = typeof payload.html === "string" ? payload.html : "";
   if (!html.trim()) return json({ error: "html is required" }, 400);
+  if (html.length > MAX_HTML_BYTES) return json({ error: "html too large (max ~2 MB)" }, 413);
 
   const user = await getSessionUser(request, env);
   if (!user) return json({ error: "Sign in to publish.", login: "/auth/login" }, 401);
@@ -41,6 +42,7 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
   if (closed) return json({ error: closed }, 503);
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
   if (await rateLimited(env, ip)) return json({ error: "Too many apps from this IP — try again later." }, 429);
+  if (await userAppCapReached(env, user.id)) return json({ error: "You've reached your app limit. Delete one in your dashboard." }, 429);
   if (!(await reserveAppSlot(env))) return json({ error: "This public demo has reached its app limit — deploy your own instance to keep going." }, 503);
 
   const site: Site = {
@@ -48,7 +50,7 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
     name: typeof payload.name === "string" ? payload.name.slice(0, 60) : undefined,
     theme_color: typeof payload.theme_color === "string" ? payload.theme_color.slice(0, 16) : undefined,
     owner: user.id,
-    visibility: "unlisted",
+    visibility: "private",
   };
   const id = genId();
   await env.SITES.put(id, JSON.stringify(site));
@@ -93,7 +95,7 @@ async function handleAppsApi(request: Request, env: Env, sub: string): Promise<R
     const site = await getSite(env, mVis[1]);
     if (!site || site.owner !== user.id) return json({ error: "not found" }, 404);
     const b = (await request.json().catch(() => ({}))) as { visibility?: string };
-    if (b.visibility !== "unlisted" && b.visibility !== "private" && b.visibility !== "public") return json({ error: "bad visibility" }, 400);
+    if (b.visibility !== "private" && b.visibility !== "public") return json({ error: "bad visibility" }, 400);
     site.visibility = b.visibility;
     await env.SITES.put(mVis[1], JSON.stringify(site));
     return json({ ok: true });

@@ -31,6 +31,7 @@
 
   // Public origin used by the MCP publish_app tool to build absolute app URLs.
   "vars": {
-    "PUBLIC_BASE_URL": "https://ship-it-app.com"
+    "PUBLIC_BASE_URL": "https://ship-it-app.com",
+    "MAX_APPS_PER_USER": "100"
   }
 }
