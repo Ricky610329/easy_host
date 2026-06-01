@@ -39,19 +39,42 @@ async function getSite(env: Env, id: string): Promise<Site | null> {
 
 // ---------- MCP server: the "connector" AI assistants call to publish ----------
 export class EasyHostMCP extends McpAgent<Env> {
-  server = new McpServer({ name: "easy_host", version: "0.1.0" });
+  server = new McpServer(
+    { name: "easy_host", version: "0.1.0" },
+    {
+      instructions:
+        "easy_host hosts web apps so the user can install them on their phone. " +
+        "Whenever the user asks you to build, create, or make a web app, webpage, tool, " +
+        "dashboard, game, tracker, or anything they want to use or install on a phone, " +
+        "generate a COMPLETE self-contained HTML document (all CSS and JS inline, no external " +
+        "files) and call publish_app with it. Then give the user the returned URL and tell them " +
+        "to open it on their phone and use Add to Home Screen to install it as an app.",
+    }
+  );
 
   async init() {
     this.server.tool(
       "publish_app",
+      "Publish a self-contained web app so the user can open it on their phone and install it as an app (PWA). " +
+        "Call this whenever the user wants a webpage, app, tool, or game they can use or install on a phone. " +
+        "Returns a public HTTPS URL to share with the user.",
       {
         html: z
           .string()
           .describe(
-            "The complete, self-contained HTML document for the web app (CSS and JS inline). This is what gets hosted and installed on the phone."
+            "The COMPLETE, standalone HTML document (a full <!doctype html> page). Put ALL CSS " +
+              "and JavaScript inline — external files and relative asset paths are NOT hosted. " +
+              "Make it mobile-friendly and responsive. A viewport tag, web app manifest, service " +
+              "worker, and icons are injected automatically, so you do not need to add them."
           ),
-        name: z.string().optional().describe("App name shown on the phone home screen (e.g. 'Workout Log')."),
-        theme_color: z.string().optional().describe("Theme color as a hex string, e.g. '#4f46e5'."),
+        name: z
+          .string()
+          .optional()
+          .describe("Short app name shown under the icon on the phone home screen (e.g. 'Workout Log'). Keep it under ~30 characters."),
+        theme_color: z
+          .string()
+          .optional()
+          .describe("Optional theme color as a hex string for the status bar / splash, e.g. '#4f46e5'."),
       },
       async ({ html, name, theme_color }) => {
         if (!html || !html.trim()) {
