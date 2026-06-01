@@ -63,9 +63,31 @@ echo -n 'mailto:you@example.com' | npx wrangler secret put VAPID_SUBJECT
 
 For local dev (`npm run dev`), put those three in a `.dev.vars` file (gitignored).
 
+### Accounts (Google sign-in)
+
+Publishing requires a signed-in account; the account owns its apps and gets a `/dashboard`. Create a
+Google OAuth 2.0 **Web application** client and register these redirect URIs:
+
+```
+https://<your-worker>/auth/callback           # web session
+https://<your-worker>/authorize/google-callback # MCP connector OAuth
+http://localhost:8787/auth/callback              # local dev (optional)
+http://localhost:8787/authorize/google-callback  # local dev (optional)
+```
+
+Then create the OAuth KV and set the secrets:
+
+```bash
+npx wrangler kv namespace create OAUTH_KV    # paste the id into wrangler.jsonc
+echo -n '<client id>'     | npx wrangler secret put GOOGLE_CLIENT_ID
+echo -n '<client secret>' | npx wrangler secret put GOOGLE_CLIENT_SECRET
+openssl rand -base64 32   | npx wrangler secret put COOKIE_SECRET   # session cookie signing
+openssl rand -base64 32   | npx wrangler secret put CAP_SECRET      # per-app capability tokens
+```
+
 ## Connect it to your AI
 
-**Claude** (Free/Pro/Max/Team/Enterprise): Settings → Connectors → **Add custom connector** → `https://<your-worker>/mcp`. Then in a chat: *"build me a ... app and publish it."* Claude calls `get_build_guide`, generates the HTML, calls `publish_app`, and hands you a link.
+**Claude** (Free/Pro/Max/Team/Enterprise): Settings → Connectors → **Add custom connector** → `https://<your-worker>/mcp`. Adding it runs an OAuth flow — **sign in with Google** to authorize. Then in a chat: *"build me a ... app and publish it."* Claude calls `get_build_guide`, generates the HTML, calls `publish_app`, and the app is owned by your account (shows up in `/dashboard`).
 
 > ChatGPT individual Plus/Pro can't use write-capable custom MCP connectors yet (Business/Enterprise/Edu only). Use the web form as the fallback there.
 
@@ -77,20 +99,23 @@ For local dev (`npm run dev`), put those three in a `.dev.vars` file (gitignored
 | `POST /api/create` | `{ html, name?, theme_color? }` → `{ id, url }`. |
 | `GET /s/:id/` | The hosted app, PWA tags injected. (`/s/:id` 301-redirects here.) |
 | `GET /s/:id/{manifest.webmanifest, sw.js, sdk.js, icon-*.png}` | App assets (generated/injected). |
-| `… /s/:id/api/{config, data, data/list, subscribe, unsubscribe, notify, reminders}` | The per-app backend the SDK talks to. |
-| `POST /mcp` | MCP: `publish_app`, `update_app`, `get_build_guide` (+ `easyhost://guide` resource). `/sse` for legacy clients. |
+| `… /s/:id/api/{config, data, data/list, subscribe, unsubscribe, notify, reminders}` | The per-app backend the SDK talks to (authorized by a per-app capability token). |
+| `GET /dashboard`, `GET/POST/DELETE /api/apps…` | Owner console (session-gated): list apps, set visibility, delete. |
+| `/auth/{login,callback,logout}`, `/authorize`, `/token`, `/register` | Google web session + the MCP OAuth provider. |
+| `POST /mcp` | MCP (OAuth-protected): `publish_app`, `update_app`, `get_build_guide` (+ `easyhost://guide` resource). |
 
-## Limitations (this is a POC — be aware before exposing it publicly)
+## Security & limitations
 
-- **No authentication.** Anyone who reaches `/mcp`, `/api/create`, or an app's `/s/:id/api/*` can publish, write that app's data, and send pushes to its subscribers. The only protection is the unguessable id. **Add auth (e.g. Cloudflare [`workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider)) before any real exposure.**
-- **No identity / single data bucket.** All visitors of an app share one data bucket; no per-user separation or cross-device login yet.
-- **Single self-contained HTML only.** CSS/JS must be inline; no external CDNs (offline is a feature). Multi-file sites would need R2.
-- **Hosted-demo kill-switch.** A public instance can be time-boxed or usage-capped via env vars (`SERVICE_OPEN`, `SERVICE_OPEN_UNTIL`, `MAX_APPS`) so it can be left running safely and shut itself off. Unset on a self-hosted instance → unrestricted.
+- **Accounts gate publishing.** Both the web form and the MCP connector require Google sign-in; published apps are owned by that account. App visibility is `unlisted` (default, link-only), `private` (owner-only), or `public`.
+- **Shared-origin isolation via capability tokens.** All apps share one origin, so `/s/:id/api/*` is authorized by a per-`(user, app)` token (not an ambient cookie) — a malicious app can't read another app's data. Per-app subdomain isolation is a planned hardening.
+- **Notifications are per-app.** A Web Push subscription is bound to each app's service-worker scope, so enabling notifications is per-app (one account does not yet share one subscription across all its apps).
+- **Single self-contained HTML only.** CSS/JS inline; no external CDNs (offline is a feature). Multi-file sites would need R2.
+- **Hosted-demo kill-switch.** A public instance can be time-boxed or usage-capped via env vars (`SERVICE_OPEN`, `SERVICE_OPEN_UNTIL`, `MAX_APPS`) and a per-IP rate limit, so it can be left running safely and shut itself off. Unset on a self-hosted instance → unrestricted.
 
 ## Roadmap
 
-- **Google login** — a durable gate for the hosted instance, plus account-level identity so one push subscription covers all of a user's apps (replacing per-app enable).
-- AI inside apps (provider-agnostic), opt-in messaging channels (Telegram/Discord), realtime / multi-user, per-user private data.
+- Unified notifications (one subscription across a user's apps, via a shared root service worker).
+- AI inside apps (provider-agnostic), opt-in messaging channels (Telegram/Discord), realtime / multi-user, per-app subdomain isolation, multi-file apps (R2).
 
 ## License
 

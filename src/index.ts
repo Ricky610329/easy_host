@@ -3,6 +3,7 @@ import { Agent, getAgentByName } from "agents";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { buildPushHTTPRequest } from "@pushforge/builder";
+import { OAuthProvider, type OAuthHelpers, type AuthRequest } from "@cloudflare/workers-oauth-provider";
 
 interface Env {
   SITES: KVNamespace;
@@ -17,7 +18,8 @@ interface Env {
   SERVICE_OPEN_UNTIL?: string; // ISO timestamp; publishing closes after it
   MAX_APPS?: string; // numeric cap on total published apps
   // Accounts (Google) — Phase 1 (web session) + Phase 2 (MCP OAuth).
-  OAUTH_KV: KVNamespace; // used by @cloudflare/workers-oauth-provider (Phase 2)
+  OAUTH_KV: KVNamespace; // used by @cloudflare/workers-oauth-provider
+  OAUTH_PROVIDER: OAuthHelpers; // injected by the provider into env
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   COOKIE_SECRET: string; // HMAC key for the session cookie
@@ -494,13 +496,16 @@ export class EasyHostMCP extends McpAgent<Env> {
       },
       async ({ html, name, theme_color }) => {
         if (!html || !html.trim()) return { content: [{ type: "text", text: "Error: html is empty." }], isError: true };
+        const owner = (this.props as { id?: string } | undefined)?.id;
+        if (!owner) return { content: [{ type: "text", text: "Please sign in: reconnect this easy_host connector and authorize with Google." }], isError: true };
         const closed = serviceClosedReason(this.env);
         if (closed) return { content: [{ type: "text", text: closed }], isError: true };
         if (!(await reserveAppSlot(this.env)))
           return { content: [{ type: "text", text: "This public demo has reached its app limit — deploy your own instance to keep going." }], isError: true };
-        const site: Site = { html, name: name?.slice(0, 60), theme_color: theme_color?.slice(0, 16) };
+        const site: Site = { html, name: name?.slice(0, 60), theme_color: theme_color?.slice(0, 16), owner, visibility: "unlisted" };
         const id = genId();
         await this.env.SITES.put(id, JSON.stringify(site));
+        await indexAddApp(this.env, owner, id);
         const url = `${baseUrl(this.env)}/s/${id}/`;
         return {
           content: [
@@ -528,12 +533,17 @@ export class EasyHostMCP extends McpAgent<Env> {
       },
       async ({ id, html, name, theme_color }) => {
         if (!html || !html.trim()) return { content: [{ type: "text", text: "Error: html is empty." }], isError: true };
+        const owner = (this.props as { id?: string } | undefined)?.id;
+        if (!owner) return { content: [{ type: "text", text: "Please sign in: reconnect this easy_host connector and authorize with Google." }], isError: true };
         const closed = serviceClosedReason(this.env);
         if (closed) return { content: [{ type: "text", text: closed }], isError: true };
         const existing = await getSite(this.env, id);
         if (!existing) return { content: [{ type: "text", text: `Error: no app with id "${id}". Use publish_app to create one.` }], isError: true };
-        const site: Site = { html, name: name ?? existing.name, theme_color: theme_color ?? existing.theme_color };
+        if (existing.owner && existing.owner !== owner)
+          return { content: [{ type: "text", text: "You don't own this app, so it can't be updated from this account." }], isError: true };
+        const site: Site = { html, name: name ?? existing.name, theme_color: theme_color ?? existing.theme_color, owner, visibility: existing.visibility || "unlisted" };
         await this.env.SITES.put(id, JSON.stringify(site));
+        await indexAddApp(this.env, owner, id);
         const url = `${baseUrl(this.env)}/s/${id}/`;
         return {
           content: [
@@ -994,6 +1004,37 @@ async function handleAuthCallback(request: Request, env: Env): Promise<Response>
   return redirectTo(next, sessionCookie(await signSession(env, user), SESSION_TTL));
 }
 
+// ---------- MCP connector OAuth (provider delegates /authorize here; Google is the upstream IdP) ----------
+async function handleAuthorize(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  let authReq: AuthRequest;
+  try {
+    authReq = await env.OAUTH_PROVIDER.parseAuthRequest(request);
+  } catch {
+    return new Response("Invalid OAuth authorization request.", { status: 400 });
+  }
+  // Carry the parsed OAuth request through Google via signed state, then complete it on the way back.
+  const state = await signToken(env.COOKIE_SECRET, { ar: authReq, exp: Math.floor(Date.now() / 1000) + 600 });
+  return redirectTo(googleAuthUrl(env, `${url.origin}/authorize/google-callback`, state));
+}
+async function handleAuthorizeCallback(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const st = await verifyToken<{ ar: AuthRequest }>(env.COOKIE_SECRET, url.searchParams.get("state"));
+  if (!code || !st?.ar) return new Response("Invalid OAuth state", { status: 400 });
+  const user = await googleUserFromCode(env, code, `${url.origin}/authorize/google-callback`);
+  if (!user) return new Response("Google sign-in failed", { status: 400 });
+  await env.SITES.put(`user:${user.id}`, JSON.stringify(user));
+  const { redirectTo: to } = await env.OAUTH_PROVIDER.completeAuthorization({
+    request: st.ar,
+    userId: user.id,
+    metadata: { email: user.email },
+    scope: st.ar.scope,
+    props: { id: user.id, email: user.email }, // becomes this.props in the McpAgent tools
+  });
+  return redirectTo(to);
+}
+
 // ---------- dashboard + owner app management ----------
 function renderDashboard(user: SessionUser, apps: { id: string; name?: string; visibility: string }[]): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -1073,14 +1114,15 @@ async function handleAppsApi(request: Request, env: Env, sub: string): Promise<R
   return json({ error: "not found" }, 404);
 }
 
-// ---------- main router ----------
-export default {
+// ---------- main app router (everything except the MCP API, which the OAuth provider owns) ----------
+const appRouter: ExportedHandler<Env> = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // MCP connector endpoint (Streamable HTTP).
-    if (path === "/mcp") return EasyHostMCP.serve("/mcp").fetch(request, env, ctx);
+    // OAuth authorize (the provider delegates /authorize here) + Google upstream callback.
+    if (path === "/authorize") return handleAuthorize(request, env);
+    if (path === "/authorize/google-callback") return handleAuthorizeCallback(request, env);
 
     // Auth + account surfaces.
     if (path === "/auth/login") return handleAuthLogin(request, env);
@@ -1127,3 +1169,16 @@ export default {
     return new Response("Not found", { status: 404 });
   },
 };
+
+// The OAuth provider owns /authorize, /token, /register, the discovery docs, and the MCP API (/mcp).
+// Everything else falls through to appRouter. Authenticated /mcp requests arrive with the Google
+// user in `this.props` (set via completeAuthorization above).
+export default new OAuthProvider({
+  apiRoute: "/mcp",
+  apiHandler: EasyHostMCP.serve("/mcp") as any,
+  defaultHandler: appRouter as any,
+  authorizeEndpoint: "/authorize",
+  tokenEndpoint: "/token",
+  clientRegistrationEndpoint: "/register",
+  scopesSupported: ["openid", "email", "profile"],
+});
