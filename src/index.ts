@@ -34,7 +34,7 @@ import {
   verifyAppToken,
 } from "./auth";
 import { manifest, serveApp, serveIcon, serveSW, serveSdk, serveSiteIcon, serveSiteSW, siteManifest } from "./pwa";
-import { FAVICON_SVG, renderLanding, renderDashboard, renderOops, renderAppGate } from "./pages";
+import { FAVICON_SVG, renderLanding, renderDashboard, renderOops, renderAppGate, renderHow } from "./pages";
 import { AppBackend, type ApiResult } from "./backend";
 import { EasyHostMCP } from "./mcp";
 import { handleScheduled } from "./cron";
@@ -228,6 +228,9 @@ const appRouter: ExportedHandler<Env> = {
 
     if (path === "/" && request.method === "GET") {
       return new Response(renderLanding(await getSessionUser(request, env)), { headers: { "content-type": "text/html;charset=utf-8" } });
+    }
+    if (path === "/how" && request.method === "GET") {
+      return new Response(renderHow(), { headers: { "content-type": "text/html;charset=utf-8" } });
     }
     if (path === "/api/create" && request.method === "POST") return handleCreate(request, env);
 

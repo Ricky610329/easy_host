@@ -55,14 +55,13 @@ ${BASE_CSS}
   .signin:hover{border-color:#45454d;text-decoration:none}
   header.top nav .who{color:var(--mut);font-size:12px;margin-right:4px}
   #authnote{display:none;margin-top:16px;border:1px solid #45454d;border-radius:8px;padding:16px;font-size:13px;color:var(--fg)}
-  footer{margin-top:44px;color:var(--mut);font-size:12px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header class="top">
     <div class="brand">ship it <span>🚀</span></div>
-    <nav>${user ? `<span class="who">${escapeAttr(user.email)}</span><a href="/dashboard">Dashboard</a>` : `<a class="signin" href="/auth/login?next=%2F">Sign in with Google</a>`}</nav>
+    <nav><a href="/how">How it works</a>${user ? `<span class="who">${escapeAttr(user.email)}</span><a href="/dashboard">Dashboard</a>` : `<a class="signin" href="/auth/login?next=%2F">Sign in with Google</a>`}</nav>
   </header>
 
   <h1>Ship a real app to your phone.</h1>
@@ -86,8 +85,6 @@ ${BASE_CSS}
     <button id="copy">Copy link</button>
     <p class="hint">Open this link on your phone, then <b>Add to Home Screen</b> (iOS Safari) or <b>Install</b> (Android Chrome).</p>
   </div>
-
-  <footer>Open source · MIT</footer>
 </div>
 <script>
 var $=function(id){return document.getElementById(id)};
@@ -119,6 +116,67 @@ $('copy').addEventListener('click',function(){
 </html>`;
 }
 
+// "How it works" walkthrough: connect the Claude connector -> ask Claude to build -> open in a real
+// browser -> Add to Home Screen. Same minimal aesthetic as the landing.
+export function renderHow(): string {
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>ship it — how it works</title>
+${FAVICON_LINK}${SITE_PWA_HEAD}
+<style>${BASE_CSS}
+  .wrap{width:100%;max-width:640px;padding:56px 0 96px}
+  h1{font-size:22px;font-weight:600;letter-spacing:-.2px;margin:0 0 8px}
+  .lead{color:var(--mut);margin:0 0 42px}
+  ol.steps{list-style:none;margin:0;padding:0;counter-reset:s}
+  ol.steps>li{position:relative;padding:0 0 32px 54px;counter-increment:s}
+  ol.steps>li:not(:last-child)::after{content:"";position:absolute;left:17px;top:38px;bottom:-2px;width:1px;background:var(--line)}
+  .num{position:absolute;left:0;top:0;width:35px;height:35px;border:1px solid #2e2e34;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;color:#9ecbff;background:var(--field)}
+  .num::before{content:counter(s)}
+  .st{font-size:15px;font-weight:600;margin:6px 0 7px}
+  .sd{color:var(--mut);margin:0 0 4px}
+  .sd b{color:var(--fg);font-weight:600}
+  code.chip{display:inline-block;background:var(--field);border:1px solid var(--line);border-radius:6px;padding:4px 9px;color:#9ecbff;font-size:13px;margin-top:9px;word-break:break-all}
+  .note{margin-top:13px;border:1px solid #45454d;border-radius:8px;padding:13px 14px;font-size:13px;color:var(--fg);line-height:1.6}
+  .note b{color:#9ecbff}
+  .alt{margin-top:8px;color:var(--mut);font-size:13px}
+  footer{margin-top:46px;color:var(--mut);font-size:12px;border-top:1px solid var(--line);padding-top:18px}
+</style></head>
+<body><div class="wrap">
+  <header class="top"><div class="brand">ship it 🚀</div><nav><a href="/">Home</a></nav></header>
+
+  <h1>How it works</h1>
+  <p class="lead">Ask Claude to build an app, then install it on your phone. No app store, no build tools — about five minutes end to end.</p>
+
+  <ol class="steps">
+    <li><div class="num"></div>
+      <div class="st">Connect ship it to Claude — once</div>
+      <p class="sd">In Claude, open <b>Settings → Connectors → Add custom connector</b> and paste this URL. Authorize with your Google account when prompted.</p>
+      <code class="chip">https://ship-it-app.com/mcp</code>
+    </li>
+    <li><div class="num"></div>
+      <div class="st">Ask Claude to build your app</div>
+      <p class="sd">Just describe it — e.g. <b>“Build a water reminder that pings me every 2 hours.”</b> Claude generates the app, publishes it here, and replies with a link.</p>
+    </li>
+    <li><div class="num"></div>
+      <div class="st">Open the link in your phone's browser</div>
+      <p class="sd">Open it in <b>Safari</b> (iPhone) or <b>Chrome</b> (Android) — your normal browser, not an in-app one. Sign in with the same Google account; your apps are private to you.</p>
+    </li>
+    <li><div class="num"></div>
+      <div class="st">Add it to your Home Screen</div>
+      <p class="sd"><b>iPhone:</b> tap the <b>Share</b> button → scroll down → <b>Add to Home Screen</b> → Add.</p>
+      <p class="sd"><b>Android:</b> tap the <b>⋮</b> menu → <b>Install app</b>.</p>
+      <div class="note"><b>iOS heads-up:</b> notifications only work after the app is on your Home Screen and opened from its icon — not in a Safari tab. So add it here <b>before</b> turning on reminders.</div>
+    </li>
+    <li><div class="num"></div>
+      <div class="st">Open it from the icon — done</div>
+      <p class="sd">Launch from the home-screen icon. It runs full-screen, works offline, saves your data, and can send real push notifications.</p>
+    </li>
+  </ol>
+
+  <footer>No Claude? You can <a href="/">paste your own HTML</a> on the home page instead.</footer>
+</div></body></html>`;
+}
+
 // Shown site-wide (account site + every app) when the service is hard-closed — either the operator
 // flipped /admin/close or the daily-request budget tripped. Friendly, not an error wall.
 export function renderOops(): string {
@@ -130,13 +188,11 @@ ${FAVICON_LINK}
   .rk{font-size:46px;line-height:1;margin-bottom:22px}
   h1{font-size:19px;font-weight:600;margin:0 0 12px}
   p{color:var(--mut);margin:0 0 10px}
-  .self{margin-top:26px;font-size:12px}
 </style></head><body><div class="wrap">
   <div class="rk">🚀</div>
   <h1>ship it is taking a breather</h1>
   <p>Too many people are using the free demo right now, so it's paused to keep it free.</p>
   <p>Please check back a little later — your installed apps and data are safe.</p>
-  <p class="self">Want it always-on? <a href="https://github.com/Ricky610329/easy_host">Deploy your own instance.</a></p>
 </div></body></html>`;
 }
 
