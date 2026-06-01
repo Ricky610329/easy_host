@@ -29,7 +29,8 @@ export function serveApp(site: Site, token: string): Response {
   const block = injectBlock(site.name || DEFAULT_NAME, site.theme_color || DEFAULT_THEME, token);
   const html = site.html;
   const lower = html.toLowerCase();
-  const headers = { "content-type": "text/html;charset=utf-8" };
+  // noindex: hosted apps are users' own content (private or shared by link) — keep them out of search.
+  const headers = { "content-type": "text/html;charset=utf-8", "x-robots-tag": "noindex" };
 
   if (lower.includes("<head")) {
     // Prepend our PWA tags as the first children of <head> so our <base> and SDK load first.

@@ -55,6 +55,7 @@ const BUILD_GUIDE = [
   "- Keep title+body short (a notification, not an essay).",
   "",
   "## 6. Design quality",
+  "- Design with taste and restraint: make it feel intentional and specific to its purpose, not a generic template. Commit to one clear idea and keep everything else quiet. Aim for something you'd be proud to ship.",
   "- One restrained accent color + neutrals; consistent 4/8px spacing rhythm; clear hierarchy.",
   "- Use the system font stack (system-ui, -apple-system, Segoe UI, Roboto, sans-serif) so it feels native and needs no download.",
   "- Support dark mode via prefers-color-scheme and set a matching theme color. Respect prefers-reduced-motion.",

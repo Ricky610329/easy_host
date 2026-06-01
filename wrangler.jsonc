@@ -5,7 +5,8 @@
   "compatibility_date": "2025-09-01",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
-  "workers_dev": true,
+  // workers.dev disabled: ship-it-app.com is the only public entry. (Local dev uses localhost:8799.)
+  "workers_dev": false,
   // Apex = account/site (custom domain). Wildcard = per-app subdomains <id>.ship-it-app.com (origin isolation).
   // Needs a proxied "*" DNS record in the ship-it-app.com zone; Universal SSL covers *.ship-it-app.com.
   "routes": [

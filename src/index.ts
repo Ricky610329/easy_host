@@ -180,7 +180,7 @@ async function serveAppHost(request: Request, env: Env, id: string, sub: string,
     if (site.visibility === "private" && (!u || u.id !== site.owner)) {
       // Branded interstitial (not a bare bounce to Google) so the visitor has context before consent.
       const loginUrl = `${accountOrigin(env)}/auth/login?next=${encodeURIComponent(appUrl(env, id))}`;
-      return new Response(renderAppGate(loginUrl), { headers: { "content-type": "text/html;charset=utf-8" } });
+      return new Response(renderAppGate(loginUrl), { headers: { "content-type": "text/html;charset=utf-8", "x-robots-tag": "noindex" } });
     }
     return serveApp(site, await mintAppToken(env, id, u?.id || "shared"));
   }
