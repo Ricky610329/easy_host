@@ -23,6 +23,7 @@ const BUILD_GUIDE = [
   "## 2. Already injected for you — do NOT add these",
   "- Viewport meta, theme-color, web app manifest, apple-touch meta/icon, app icons, and the service worker (registered for you).",
   "- The easyhost SDK (sdk.js) — window.easyhost is available. Do not write your own manifest, icons, or register a service worker.",
+  "- The home-screen icon is auto-generated as a lettermark (the app name's first letter on your theme_color). For a non-Latin name, pass `icon` (one A-Z/0-9 letter, e.g. 'W' for a water app) so the icon shows a clean monogram.",
   "",
   "## 3. Mobile / PWA UX (this is what makes it feel like a real app)",
   "- Use 100dvh, not 100vh (mobile URL bar resizes the viewport).",
@@ -118,8 +119,9 @@ export class EasyHostMCP extends McpAgent<Env> {
           ),
         name: z.string().optional().describe("Short app name on the home screen (e.g. 'Water Reminder'). Under ~30 chars."),
         theme_color: z.string().optional().describe("Theme color hex, e.g. '#4f46e5'."),
+        icon: z.string().optional().describe("One letter or digit (A-Z / 0-9) for the home-screen icon monogram. Defaults to the app name's first letter; set this for non-Latin names (e.g. 'W' for a water app)."),
       },
-      async ({ html, name, theme_color }) => {
+      async ({ html, name, theme_color, icon }) => {
         if (!html || !html.trim()) return { content: [{ type: "text", text: "Error: html is empty." }], isError: true };
         const owner = (this.props as { id?: string } | undefined)?.id;
         if (!owner) return { content: [{ type: "text", text: "Please sign in: reconnect this easy_host connector and authorize with Google." }], isError: true };
@@ -127,7 +129,7 @@ export class EasyHostMCP extends McpAgent<Env> {
         if (closed) return { content: [{ type: "text", text: closed }], isError: true };
         if (!(await reserveAppSlot(this.env)))
           return { content: [{ type: "text", text: "This public demo has reached its app limit — deploy your own instance to keep going." }], isError: true };
-        const site: Site = { html, name: name?.slice(0, 60), theme_color: theme_color?.slice(0, 16), owner, visibility: "unlisted" };
+        const site: Site = { html, name: name?.slice(0, 60), theme_color: theme_color?.slice(0, 16), icon: icon?.slice(0, 2), owner, visibility: "unlisted" };
         const id = genId();
         await this.env.SITES.put(id, JSON.stringify(site));
         await indexAddApp(this.env, owner, id);
@@ -155,8 +157,9 @@ export class EasyHostMCP extends McpAgent<Env> {
         html: z.string().describe("The new complete self-contained HTML document (replaces the old one)."),
         name: z.string().optional().describe("Optional new app name."),
         theme_color: z.string().optional().describe("Optional new theme color hex."),
+        icon: z.string().optional().describe("Optional new icon monogram letter/digit."),
       },
-      async ({ id, html, name, theme_color }) => {
+      async ({ id, html, name, theme_color, icon }) => {
         if (!html || !html.trim()) return { content: [{ type: "text", text: "Error: html is empty." }], isError: true };
         const owner = (this.props as { id?: string } | undefined)?.id;
         if (!owner) return { content: [{ type: "text", text: "Please sign in: reconnect this easy_host connector and authorize with Google." }], isError: true };
@@ -166,7 +169,7 @@ export class EasyHostMCP extends McpAgent<Env> {
         if (!existing) return { content: [{ type: "text", text: `Error: no app with id "${id}". Use publish_app to create one.` }], isError: true };
         if (existing.owner && existing.owner !== owner)
           return { content: [{ type: "text", text: "You don't own this app, so it can't be updated from this account." }], isError: true };
-        const site: Site = { html, name: name ?? existing.name, theme_color: theme_color ?? existing.theme_color, owner, visibility: existing.visibility || "unlisted" };
+        const site: Site = { html, name: name ?? existing.name, theme_color: theme_color ?? existing.theme_color, icon: icon?.slice(0, 2) ?? existing.icon, owner, visibility: existing.visibility || "unlisted" };
         await this.env.SITES.put(id, JSON.stringify(site));
         await indexAddApp(this.env, owner, id);
         const url = `${baseUrl(this.env)}/s/${id}/`;

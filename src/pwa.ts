@@ -224,32 +224,103 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-async function makePng(size: number, color: string): Promise<Uint8Array> {
+// 5x7 bitmap font (each row is 5 bits, MSB = leftmost). The 1-pattern is the glyph shape.
+const FONT: Record<string, number[]> = {
+  A: [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
+  B: [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
+  C: [0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110],
+  D: [0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110],
+  E: [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
+  F: [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000],
+  G: [0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01111],
+  H: [0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
+  I: [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111],
+  J: [0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100],
+  K: [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001],
+  L: [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111],
+  M: [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001],
+  N: [0b10001, 0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001],
+  O: [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+  P: [0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000],
+  Q: [0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101],
+  R: [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001],
+  S: [0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110],
+  T: [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100],
+  U: [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+  V: [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100],
+  W: [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001],
+  X: [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001],
+  Y: [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100],
+  Z: [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111],
+  "0": [0b01110, 0b10011, 0b10101, 0b10101, 0b11001, 0b10001, 0b01110],
+  "1": [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
+  "2": [0b01110, 0b10001, 0b00001, 0b00110, 0b01000, 0b10000, 0b11111],
+  "3": [0b11111, 0b00010, 0b00100, 0b00010, 0b00001, 0b10001, 0b01110],
+  "4": [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010],
+  "5": [0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110],
+  "6": [0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110],
+  "7": [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000],
+  "8": [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110],
+  "9": [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100],
+};
+
+// First renderable glyph from an explicit icon, else the name; "" => no glyph (gradient only).
+function pickGlyph(site: Site | null): string {
+  const src = (site?.icon || site?.name || "").toUpperCase();
+  for (const ch of src) if (FONT[ch]) return ch;
+  return "";
+}
+
+async function renderIcon(size: number, color: string, glyph: string): Promise<Uint8Array> {
   const [r, g, b] = hexToRgb(color);
+  // Glyph contrast: dark on light backgrounds, white otherwise.
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  const fg = lum > 0.6 ? [17, 17, 17] : [255, 255, 255];
+
   const rowLen = 1 + size * 3;
   const raw = new Uint8Array(rowLen * size);
   for (let y = 0; y < size; y++) {
     const off = y * rowLen;
-    raw[off] = 0;
+    raw[off] = 0; // filter: none
+    const shade = 1 - 0.22 * (y / size); // subtle vertical gradient
+    const br = Math.round(r * shade), bg = Math.round(g * shade), bb = Math.round(b * shade);
     for (let x = 0; x < size; x++) {
       const p = off + 1 + x * 3;
-      raw[p] = r;
-      raw[p + 1] = g;
-      raw[p + 2] = b;
+      raw[p] = br;
+      raw[p + 1] = bg;
+      raw[p + 2] = bb;
     }
   }
-  const idat = await deflate(raw);
 
+  const bitmap = glyph && FONT[glyph];
+  if (bitmap) {
+    const scale = Math.max(1, Math.floor((size * 0.52) / 7));
+    const gw = 5 * scale, gh = 7 * scale;
+    const ox = Math.floor((size - gw) / 2), oy = Math.floor((size - gh) / 2);
+    for (let ry = 0; ry < 7; ry++) {
+      for (let rx = 0; rx < 5; rx++) {
+        if (!(bitmap[ry] & (1 << (4 - rx)))) continue;
+        for (let dy = 0; dy < scale; dy++) {
+          const yy = oy + ry * scale + dy;
+          const base = yy * rowLen + 1 + (ox + rx * scale) * 3;
+          for (let dx = 0; dx < scale; dx++) {
+            const p = base + dx * 3;
+            raw[p] = fg[0];
+            raw[p + 1] = fg[1];
+            raw[p + 2] = fg[2];
+          }
+        }
+      }
+    }
+  }
+
+  const idat = await deflate(raw);
   const ihdr = new Uint8Array(13);
   const dv = new DataView(ihdr.buffer);
   dv.setUint32(0, size);
   dv.setUint32(4, size);
-  ihdr[8] = 8;
-  ihdr[9] = 2;
-  ihdr[10] = 0;
-  ihdr[11] = 0;
-  ihdr[12] = 0;
-
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // color type: truecolor RGB
   const sig = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
   const chunks = [sig, pngChunk("IHDR", ihdr), pngChunk("IDAT", idat), pngChunk("IEND", new Uint8Array(0))];
   const total = chunks.reduce((a, c) => a + c.length, 0);
@@ -262,18 +333,19 @@ async function makePng(size: number, color: string): Promise<Uint8Array> {
   return out;
 }
 
-const iconCache = new Map<number, Promise<Uint8Array>>();
-function getIcon(size: number): Promise<Uint8Array> {
-  let p = iconCache.get(size);
+const iconCache = new Map<string, Promise<Uint8Array>>();
+function getIcon(size: number, color: string, glyph: string): Promise<Uint8Array> {
+  const key = `${size}:${color}:${glyph}`;
+  let p = iconCache.get(key);
   if (!p) {
-    p = makePng(size, DEFAULT_THEME);
-    iconCache.set(size, p);
+    p = renderIcon(size, color, glyph);
+    iconCache.set(key, p);
   }
   return p;
 }
 
-export async function serveIcon(size: number): Promise<Response> {
-  const png = await getIcon(size);
+export async function serveIcon(size: number, site: Site | null): Promise<Response> {
+  const png = await getIcon(size, site?.theme_color || DEFAULT_THEME, pickGlyph(site));
   return new Response(png.slice(), {
     headers: { "content-type": "image/png", "cache-control": "public, max-age=31536000, immutable" },
   });

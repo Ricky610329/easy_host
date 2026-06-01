@@ -140,11 +140,12 @@ const appRouter: ExportedHandler<Env> = {
       if (sub === undefined) return redirectTo(`${url.origin}/s/${id}/`);
 
       if (sub.startsWith("/api/")) return handleApi(request, env, id, sub.slice("/api/".length), url);
-      if (sub === "/icon-192.png") return serveIcon(192);
-      if (sub === "/icon-512.png") return serveIcon(512);
-      if (sub === "/apple-touch-icon.png") return serveIcon(180);
       if (sub === "/sw.js") return serveSW();
       if (sub === "/sdk.js") return serveSdk();
+      if (sub === "/icon-192.png" || sub === "/icon-512.png" || sub === "/apple-touch-icon.png") {
+        const size = sub === "/icon-512.png" ? 512 : sub === "/apple-touch-icon.png" ? 180 : 192;
+        return serveIcon(size, await getSite(env, id));
+      }
 
       const site = await getSite(env, id);
       if (!site) return new Response("Not found", { status: 404 });

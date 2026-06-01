@@ -31,6 +31,7 @@ export interface Site {
   html: string;
   name?: string;
   theme_color?: string;
+  icon?: string; // optional monogram char(s) for the generated lettermark icon
   owner?: string; // Google sub of the publisher; undefined => legacy/anonymous
   visibility?: "unlisted" | "private" | "public"; // default unlisted
 }
