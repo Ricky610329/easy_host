@@ -12,6 +12,10 @@ interface Env {
   VAPID_PUBLIC_KEY: string;
   VAPID_PRIVATE_JWK: string;
   VAPID_SUBJECT: string;
+  // Hosted-demo kill-switch (all optional; unset => unrestricted, so self-hosters are unaffected).
+  SERVICE_OPEN?: string; // "false" closes new publishing
+  SERVICE_OPEN_UNTIL?: string; // ISO timestamp; publishing closes after it
+  MAX_APPS?: string; // numeric cap on total published apps
 }
 
 interface Site {
@@ -52,6 +56,43 @@ async function getSite(env: Env, id: string): Promise<Site | null> {
 
 function baseUrl(env: Env): string {
   return (env.PUBLIC_BASE_URL || "http://localhost:8787").replace(/\/+$/, "");
+}
+
+// ---------- hosted-demo gate (kill-switch + cap + rate limit) ----------
+// All checks are no-ops unless the corresponding env var is set, so a self-hosted
+// instance with none of these set behaves exactly as before (unrestricted).
+const COUNT_KEY = "__count";
+const RL_LIMIT = 10; // creates per IP per window
+const RL_WINDOW = 600; // seconds
+
+// Returns a human-readable reason if new publishing is currently closed, else null.
+function serviceClosedReason(env: Env): string | null {
+  if (env.SERVICE_OPEN && env.SERVICE_OPEN.toLowerCase() === "false") return "This demo is currently closed.";
+  if (env.SERVICE_OPEN_UNTIL) {
+    const until = Date.parse(env.SERVICE_OPEN_UNTIL);
+    if (!Number.isNaN(until) && Date.now() > until) return "This public demo window has ended — deploy your own instance to keep going.";
+  }
+  return null;
+}
+
+// Reserve one slot against MAX_APPS. No cap set => always allowed. (KV is not atomic;
+// approximate counting is fine for a demo cap.)
+async function reserveAppSlot(env: Env): Promise<boolean> {
+  const max = env.MAX_APPS ? parseInt(env.MAX_APPS, 10) : 0;
+  if (!max) return true;
+  const cur = parseInt((await env.SITES.get(COUNT_KEY)) || "0", 10);
+  if (cur >= max) return false;
+  await env.SITES.put(COUNT_KEY, String(cur + 1));
+  return true;
+}
+
+// Simple per-IP rolling rate limit (only used on the public web form).
+async function rateLimited(env: Env, ip: string): Promise<boolean> {
+  const key = `__rl:${ip}`;
+  const cur = parseInt((await env.SITES.get(key)) || "0", 10);
+  if (cur >= RL_LIMIT) return true;
+  await env.SITES.put(key, String(cur + 1), { expirationTtl: RL_WINDOW });
+  return false;
 }
 
 // Cheap heuristics surfaced back to the AI so it can self-correct via update_app.
@@ -307,6 +348,10 @@ export class EasyHostMCP extends McpAgent<Env> {
       },
       async ({ html, name, theme_color }) => {
         if (!html || !html.trim()) return { content: [{ type: "text", text: "Error: html is empty." }], isError: true };
+        const closed = serviceClosedReason(this.env);
+        if (closed) return { content: [{ type: "text", text: closed }], isError: true };
+        if (!(await reserveAppSlot(this.env)))
+          return { content: [{ type: "text", text: "This public demo has reached its app limit — deploy your own instance to keep going." }], isError: true };
         const site: Site = { html, name: name?.slice(0, 60), theme_color: theme_color?.slice(0, 16) };
         const id = genId();
         await this.env.SITES.put(id, JSON.stringify(site));
@@ -337,6 +382,8 @@ export class EasyHostMCP extends McpAgent<Env> {
       },
       async ({ id, html, name, theme_color }) => {
         if (!html || !html.trim()) return { content: [{ type: "text", text: "Error: html is empty." }], isError: true };
+        const closed = serviceClosedReason(this.env);
+        if (closed) return { content: [{ type: "text", text: closed }], isError: true };
         const existing = await getSite(this.env, id);
         if (!existing) return { content: [{ type: "text", text: `Error: no app with id "${id}". Use publish_app to create one.` }], isError: true };
         const site: Site = { html, name: name ?? existing.name, theme_color: theme_color ?? existing.theme_color };
@@ -722,6 +769,13 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
   }
   const html = typeof payload.html === "string" ? payload.html : "";
   if (!html.trim()) return json({ error: "html is required" }, 400);
+
+  const closed = serviceClosedReason(env);
+  if (closed) return json({ error: closed }, 503);
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  if (await rateLimited(env, ip)) return json({ error: "Too many apps from this IP — try again later." }, 429);
+  if (!(await reserveAppSlot(env))) return json({ error: "This public demo has reached its app limit — deploy your own instance to keep going." }, 503);
+
   const site: Site = {
     html,
     name: typeof payload.name === "string" ? payload.name.slice(0, 60) : undefined,
