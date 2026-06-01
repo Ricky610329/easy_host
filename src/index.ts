@@ -16,7 +16,7 @@ import {
   verifyAppToken,
 } from "./auth";
 import { manifest, serveApp, serveIcon, serveSW, serveSdk } from "./pwa";
-import { LANDING, renderDashboard } from "./pages";
+import { FAVICON_SVG, LANDING, renderDashboard } from "./pages";
 import { AppBackend, type ApiResult } from "./backend";
 import { EasyHostMCP } from "./mcp";
 
@@ -118,6 +118,10 @@ const appRouter: ExportedHandler<Env> = {
     // OAuth authorize (the provider delegates /authorize here) + Google upstream callback.
     if (path === "/authorize") return handleAuthorize(request, env);
     if (path === "/authorize/google-callback") return handleAuthorizeCallback(request, env);
+
+    if (path === "/favicon.svg") {
+      return new Response(FAVICON_SVG, { headers: { "content-type": "image/svg+xml; charset=utf-8", "cache-control": "public, max-age=86400" } });
+    }
 
     // Auth + account surfaces.
     if (path === "/auth/login") return handleAuthLogin(request, env);

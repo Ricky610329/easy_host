@@ -2,12 +2,17 @@
 import type { SessionUser } from "./types";
 import { escapeAttr, safeJson } from "./util";
 
+// Brand favicon for the easy_host site itself (the apps under /s/:id/ get their own generated icons).
+export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#4f46e5"/><text x="32" y="35" font-size="38" text-anchor="middle" dominant-baseline="central">🚀</text></svg>`;
+const FAVICON_LINK = `<link rel="icon" href="/favicon.svg" type="image/svg+xml">`;
+
 export const LANDING = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>easy_host</title>
+${FAVICON_LINK}
 <style>
   :root{--bg:#0b0b10;--fg:#e7e7ee;--mut:#9aa0b0;--ac:#4f46e5}
   *{box-sizing:border-box}
@@ -79,6 +84,7 @@ $('copy').addEventListener('click',function(){
 export function renderDashboard(user: SessionUser, apps: { id: string; name?: string; visibility: string }[]): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>easy_host — dashboard</title>
+${FAVICON_LINK}
 <style>
   :root{--bg:#0b0b10;--fg:#e7e7ee;--mut:#9aa0b0;--ac:#4f46e5;--card:#15151d;--line:#2a2a36}
   *{box-sizing:border-box}body{margin:0;font:16px/1.5 system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--fg);display:flex;justify-content:center;padding:32px 16px}
