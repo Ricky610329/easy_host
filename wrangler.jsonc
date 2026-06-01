@@ -12,12 +12,16 @@
     { "binding": "SITES", "id": "9bca04575f3449adb3c47a2454681c3a" }
   ],
 
-  // Required by the MCP server (Cloudflare Agents SDK McpAgent runs in a Durable Object).
+  // MCP server (McpAgent) + one per-app backend DO (AppBackend) for data + scheduled push.
   "durable_objects": {
-    "bindings": [{ "name": "MCP_OBJECT", "class_name": "EasyHostMCP" }]
+    "bindings": [
+      { "name": "MCP_OBJECT", "class_name": "EasyHostMCP" },
+      { "name": "APP_OBJECT", "class_name": "AppBackend" }
+    ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["EasyHostMCP"] }
+    { "tag": "v1", "new_sqlite_classes": ["EasyHostMCP"] },
+    { "tag": "v2", "new_sqlite_classes": ["AppBackend"] }
   ],
 
   // After your first deploy, set this to your Worker's public origin, e.g.
