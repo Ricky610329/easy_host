@@ -74,6 +74,34 @@ export function serviceClosedReason(env: Env): string | null {
   return null;
 }
 
+// ---------- whole-site hard close (cost auto-shutoff + manual kill) ----------
+// Two independent flags in KV: "manual" (operator, via /admin/close) and "auto" (the budget cron).
+// Either present => the whole site serves the "oops, too many users" page. Cached in isolate memory
+// (~60s) so we don't read KV on every request (KV reads are themselves a free-plan budget).
+const HC_MANUAL = "service:closed_manual";
+const HC_AUTO = "service:closed_auto";
+let hcCache: { at: number; closed: boolean } = { at: 0, closed: false };
+
+export async function isServiceHardClosed(env: Env): Promise<boolean> {
+  const now = Date.now();
+  if (now - hcCache.at < 60_000) return hcCache.closed;
+  const [m, a] = await Promise.all([env.SITES.get(HC_MANUAL), env.SITES.get(HC_AUTO)]);
+  hcCache = { at: now, closed: m !== null || a !== null };
+  return hcCache.closed;
+}
+// Operator switch: close sets the manual flag; open clears BOTH flags (force-reopen, overriding the cron).
+export async function setServiceClosedManual(env: Env, on: boolean): Promise<void> {
+  if (on) await env.SITES.put(HC_MANUAL, "1");
+  else await Promise.all([env.SITES.delete(HC_MANUAL), env.SITES.delete(HC_AUTO)]);
+  hcCache = { at: 0, closed: false }; // bust the cache so it takes effect immediately in this isolate
+}
+// The budget cron's switch: set/clear the auto flag without touching the operator's manual flag.
+export async function setServiceClosedAuto(env: Env, on: boolean): Promise<void> {
+  if (on) await env.SITES.put(HC_AUTO, "1");
+  else await env.SITES.delete(HC_AUTO);
+  hcCache = { at: 0, closed: false };
+}
+
 // Reserve one slot against MAX_APPS. No cap set => always allowed. (KV is not atomic;
 // approximate counting is fine for a demo cap.)
 export async function reserveAppSlot(env: Env): Promise<boolean> {

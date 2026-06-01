@@ -14,6 +14,12 @@ export interface Env {
   SERVICE_OPEN_UNTIL?: string; // ISO timestamp; publishing closes after it
   MAX_APPS?: string; // numeric cap on total published apps (whole instance)
   MAX_APPS_PER_USER?: string; // numeric cap on apps per account
+  // Cost auto-shutoff (optional): a cron reads Cloudflare's own request analytics and, if today's
+  // request count exceeds DAILY_REQUEST_BUDGET, hard-closes the whole site (an "oops" page) until
+  // the next UTC day. Unset => disabled (manual /admin/close still works).
+  DAILY_REQUEST_BUDGET?: string; // numeric daily request ceiling for the whole worker
+  CF_API_TOKEN?: string; // Cloudflare API token with Account Analytics:Read
+  CF_ACCOUNT_ID?: string; // Cloudflare account id (the analytics are account-scoped)
   // Accounts (Google): web session + MCP OAuth.
   OAUTH_KV: KVNamespace; // used by @cloudflare/workers-oauth-provider
   OAUTH_PROVIDER: OAuthHelpers; // injected by the provider into env

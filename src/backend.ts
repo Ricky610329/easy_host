@@ -93,10 +93,25 @@ export class AppBackend extends Agent<Env> {
         return { status: 200, json: { ok: true } };
       }
       if (path === "data/list" && method === "GET") {
-        const rows = query.prefix
-          ? this.sql<{ k: string; v: string }>`SELECT k, v FROM kv WHERE ns = ${ns} AND k LIKE ${query.prefix + "%"} ORDER BY k`
-          : this.sql<{ k: string; v: string }>`SELECT k, v FROM kv WHERE ns = ${ns} ORDER BY k`;
+        const like = (query.prefix || "") + "%";
+        const limit = Math.min(1000, Math.max(1, parseInt(query.limit || "1000", 10) || 1000));
+        const keysOnly = query.keysOnly === "1";
+        // keysOnly skips reading/parsing/sending values — for paging large datasets cheaply.
+        if (keysOnly) {
+          const rows = query.reverse === "1"
+            ? this.sql<{ k: string }>`SELECT k FROM kv WHERE ns = ${ns} AND k LIKE ${like} ORDER BY k DESC LIMIT ${limit}`
+            : this.sql<{ k: string }>`SELECT k FROM kv WHERE ns = ${ns} AND k LIKE ${like} ORDER BY k ASC LIMIT ${limit}`;
+          return { status: 200, json: { items: rows.map((r) => ({ key: r.k })) } };
+        }
+        const rows = query.reverse === "1"
+          ? this.sql<{ k: string; v: string }>`SELECT k, v FROM kv WHERE ns = ${ns} AND k LIKE ${like} ORDER BY k DESC LIMIT ${limit}`
+          : this.sql<{ k: string; v: string }>`SELECT k, v FROM kv WHERE ns = ${ns} AND k LIKE ${like} ORDER BY k ASC LIMIT ${limit}`;
         return { status: 200, json: { items: rows.map((r) => ({ key: r.k, value: JSON.parse(r.v) })) } };
+      }
+      if (path === "data/count" && method === "GET") {
+        const like = (query.prefix || "") + "%";
+        const c = this.sql<{ c: number }>`SELECT COUNT(*) AS c FROM kv WHERE ns = ${ns} AND k LIKE ${like}`[0].c;
+        return { status: 200, json: { count: c } };
       }
       return { status: 404, json: { error: "not found" } };
     } catch (e) {
@@ -113,7 +128,12 @@ export class AppBackend extends Agent<Env> {
     }
     if (b.dailyAt) {
       const [h, m] = String(b.dailyAt).split(":");
-      return (await this.schedule(`${Number(m) || 0} ${Number(h) || 0} * * *`, "fireReminder" as keyof this, payload)).id;
+      // dailyAt is the user's LOCAL time; the SDK sends tzOffset (= JS getTimezoneOffset, minutes) so
+      // we can target the right UTC cron. (Fixed offset => may drift 1h across daylight-saving changes.)
+      const off = Number.isFinite(Number(b.tzOffset)) ? Math.trunc(Number(b.tzOffset)) : 0;
+      let total = (Number(h) || 0) * 60 + (Number(m) || 0) + off; // local -> UTC minutes
+      total = ((total % 1440) + 1440) % 1440;
+      return (await this.schedule(`${total % 60} ${Math.floor(total / 60)} * * *`, "fireReminder" as keyof this, payload)).id;
     }
     if (b.at) {
       const when = typeof b.at === "number" ? new Date(b.at) : new Date(String(b.at));

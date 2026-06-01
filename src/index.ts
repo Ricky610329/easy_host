@@ -13,11 +13,13 @@ import {
   indexAddApp,
   indexRemoveApp,
   isBlocked,
+  isServiceHardClosed,
   listOwnerApps,
   rateLimited,
   reserveAppSlot,
   serviceClosedReason,
   setBlocked,
+  setServiceClosedManual,
   subdomainMode,
   userAppCapReached,
 } from "./store";
@@ -32,9 +34,10 @@ import {
   verifyAppToken,
 } from "./auth";
 import { manifest, serveApp, serveIcon, serveSW, serveSdk, serveSiteIcon, serveSiteSW, siteManifest } from "./pwa";
-import { FAVICON_SVG, renderLanding, renderDashboard } from "./pages";
+import { FAVICON_SVG, renderLanding, renderDashboard, renderOops, renderAppGate } from "./pages";
 import { AppBackend, type ApiResult } from "./backend";
 import { EasyHostMCP } from "./mcp";
+import { handleScheduled } from "./cron";
 
 // Durable Object classes must be exported from the Worker entry for wrangler to bind them.
 export { AppBackend } from "./backend";
@@ -137,11 +140,23 @@ function crossOrigin(request: Request, env: Env): boolean {
 
 // Operator takedown: POST {id} with Authorization: Bearer ADMIN_TOKEN.
 async function handleAdmin(request: Request, env: Env, block: boolean): Promise<Response> {
-  if (!env.ADMIN_TOKEN || request.headers.get("authorization") !== `Bearer ${env.ADMIN_TOKEN}`) return json({ error: "forbidden" }, 403);
+  if (!adminOK(request, env)) return json({ error: "forbidden" }, 403);
   const b = (await request.json().catch(() => ({}))) as { id?: string };
   if (!b.id) return json({ error: "id required" }, 400);
   await setBlocked(env, b.id, block);
   return json({ ok: true, id: b.id, blocked: block });
+}
+
+function adminOK(request: Request, env: Env): boolean {
+  return !!env.ADMIN_TOKEN && request.headers.get("authorization") === `Bearer ${env.ADMIN_TOKEN}`;
+}
+
+// Operator instant kill-switch for the WHOLE site: POST /admin/close | /admin/open (Bearer ADMIN_TOKEN).
+// close => everyone sees the "oops" page; open => force-reopen (also clears any auto budget-trip).
+async function handleAdminClose(request: Request, env: Env, close: boolean): Promise<Response> {
+  if (!adminOK(request, env)) return json({ error: "forbidden" }, 403);
+  await setServiceClosedManual(env, close);
+  return json({ ok: true, closed: close });
 }
 
 // Serve a single hosted app. `sub` is the app-relative path ("/", "/sw.js", "/api/...", or any
@@ -163,7 +178,9 @@ async function serveAppHost(request: Request, env: Env, id: string, sub: string,
   if (request.method === "GET") {
     const u = await getSessionUser(request, env);
     if (site.visibility === "private" && (!u || u.id !== site.owner)) {
-      return redirectTo(`${accountOrigin(env)}/auth/login?next=${encodeURIComponent(appUrl(env, id))}`);
+      // Branded interstitial (not a bare bounce to Google) so the visitor has context before consent.
+      const loginUrl = `${accountOrigin(env)}/auth/login?next=${encodeURIComponent(appUrl(env, id))}`;
+      return new Response(renderAppGate(loginUrl), { headers: { "content-type": "text/html;charset=utf-8" } });
     }
     return serveApp(site, await mintAppToken(env, id, u?.id || "shared"));
   }
@@ -175,6 +192,15 @@ const appRouter: ExportedHandler<Env> = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    // Operator instant kill-switch — must work even while the site is hard-closed.
+    if ((path === "/admin/close" || path === "/admin/open") && request.method === "POST") {
+      return handleAdminClose(request, env, path === "/admin/close");
+    }
+    // Cost auto-shutoff / manual kill: serve the friendly "oops" page for everything else.
+    if (await isServiceHardClosed(env)) {
+      return new Response(renderOops(), { status: 503, headers: { "content-type": "text/html;charset=utf-8", "retry-after": "3600" } });
+    }
 
     // App subdomain host (<id>.<apex>) serves ONLY that app (isolated origin).
     const hostId = appHostId(env, url.hostname);
@@ -224,7 +250,7 @@ const appRouter: ExportedHandler<Env> = {
 // The OAuth provider owns /authorize, /token, /register, the discovery docs, and the MCP API (/mcp).
 // Everything else falls through to appRouter. Authenticated /mcp requests arrive with the Google
 // user in `this.props` (set via completeAuthorization in ./auth).
-export default new OAuthProvider({
+const oauthProvider = new OAuthProvider({
   apiRoute: "/mcp",
   apiHandler: EasyHostMCP.serve("/mcp") as any,
   defaultHandler: appRouter as any,
@@ -233,3 +259,13 @@ export default new OAuthProvider({
   clientRegistrationEndpoint: "/register",
   scopesSupported: ["openid", "email", "profile"],
 });
+
+// Wrap the provider so the worker also has a `scheduled` handler for the cost auto-shutoff cron.
+export default {
+  fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    return (oauthProvider as any).fetch(request, env, ctx);
+  },
+  async scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionContext) {
+    await handleScheduled(env);
+  },
+};

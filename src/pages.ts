@@ -119,6 +119,51 @@ $('copy').addEventListener('click',function(){
 </html>`;
 }
 
+// Shown site-wide (account site + every app) when the service is hard-closed — either the operator
+// flipped /admin/close or the daily-request budget tripped. Friendly, not an error wall.
+export function renderOops(): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>ship it — taking a breather</title>
+${FAVICON_LINK}
+<style>${BASE_CSS}
+  .wrap{width:100%;max-width:480px;padding:96px 0 80px;text-align:center}
+  .rk{font-size:46px;line-height:1;margin-bottom:22px}
+  h1{font-size:19px;font-weight:600;margin:0 0 12px}
+  p{color:var(--mut);margin:0 0 10px}
+  .self{margin-top:26px;font-size:12px}
+</style></head><body><div class="wrap">
+  <div class="rk">🚀</div>
+  <h1>ship it is taking a breather</h1>
+  <p>Too many people are using the free demo right now, so it's paused to keep it free.</p>
+  <p>Please check back a little later — your installed apps and data are safe.</p>
+  <p class="self">Want it always-on? <a href="https://github.com/Ricky610329/easy_host">Deploy your own instance.</a></p>
+</div></body></html>`;
+}
+
+// Branded interstitial shown on an app subdomain when a logged-out (or wrong-account) visitor opens a
+// PRIVATE app — instead of bouncing straight to a bare Google consent screen with no context.
+export function renderAppGate(loginUrl: string): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Private app — ship it</title>
+${FAVICON_LINK}
+<style>${BASE_CSS}
+  body{align-items:center}
+  .wrap{width:100%;max-width:400px;padding:0 0 env(safe-area-inset-bottom);text-align:center}
+  .rk{font-size:42px;line-height:1;margin-bottom:20px}
+  h1{font-size:18px;font-weight:600;margin:0 0 10px}
+  p{color:var(--mut);margin:0 0 22px}
+  .signin{display:inline-block;border:1px solid #2e2e34;background:transparent;color:var(--fg);border-radius:8px;padding:13px 22px;font-weight:600;letter-spacing:.3px}
+  .signin:hover{background:#141416;border-color:#45454d;text-decoration:none}
+  .brand{margin-top:30px;font-size:12px;color:var(--mut)}
+</style></head><body><div class="wrap">
+  <div class="rk">🚀</div>
+  <h1>This app is private</h1>
+  <p>It's hosted on ship it and only its owner can open it. Sign in with the Google account that created it.</p>
+  <a class="signin" href="${escapeAttr(loginUrl)}">Sign in with Google</a>
+  <div class="brand">ship it · install AI-built apps on your phone</div>
+</div></body></html>`;
+}
+
 export function renderDashboard(user: SessionUser, apps: { id: string; name?: string; visibility: string }[]): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>ship it — dashboard</title>

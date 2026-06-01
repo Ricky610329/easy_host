@@ -33,6 +33,10 @@
     { "tag": "v2", "new_sqlite_classes": ["AppBackend"] }
   ],
 
+  // Cost auto-shutoff: this cron reads Cloudflare's request analytics and trips the kill-switch if
+  // DAILY_REQUEST_BUDGET is exceeded. No-op unless DAILY_REQUEST_BUDGET + CF_API_TOKEN + CF_ACCOUNT_ID are set.
+  "triggers": { "crons": ["*/15 * * * *"] },
+
   // Public origin used by the MCP publish_app tool to build absolute app URLs.
   "vars": {
     "PUBLIC_BASE_URL": "https://ship-it-app.com",

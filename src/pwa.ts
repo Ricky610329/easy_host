@@ -156,16 +156,19 @@ const SDK_JS = `(function(){
       return true;
     },
     sendNow:function(m){return api('POST','notify',{body:m})},
-    schedule:function(m){return api('POST','reminders',{body:m})},
-    every:function(m){return api('POST','reminders',{body:m})},
+    schedule:function(m){return api('POST','reminders',{body:withTz(m)})},
+    every:function(m){return api('POST','reminders',{body:withTz(m)})},
     list:function(){return api('GET','reminders').then(function(r){return r.items})},
     cancel:function(id){return api('DELETE','reminders/'+encodeURIComponent(id))}
   };
+  // Attach the device's UTC offset so dailyAt fires at the user's LOCAL time (server converts it).
+  function withTz(m){m=m||{};if(m.tzOffset===undefined)m.tzOffset=new Date().getTimezoneOffset();return m}
   var data={
     get:function(k){return api('GET','data',{query:{key:k}}).then(function(r){return r.value})},
-    set:function(k,v){return api('PUT','data',{body:{key:k,value:v}})},
+    set:function(k,v){return api('PUT','data',{body:{key:k,value:v}}).then(function(r){if(r&&r.error)throw new Error('easyhost.data.set failed: '+r.error);return r})},
     delete:function(k){return api('DELETE','data',{query:{key:k}})},
-    list:function(prefix){return api('GET','data/list',{query:prefix?{prefix:prefix}:{}}).then(function(r){return r.items})}
+    list:function(prefix,opts){opts=opts||{};var q={};if(prefix)q.prefix=prefix;if(opts.keysOnly)q.keysOnly='1';if(opts.limit)q.limit=String(opts.limit);if(opts.reverse)q.reverse='1';return api('GET','data/list',{query:q}).then(function(r){return r.items})},
+    count:function(prefix){return api('GET','data/count',{query:prefix?{prefix:prefix}:{}}).then(function(r){return r.count})}
   };
   window.easyhost={ready:ready,user:{id:null},notify:notify,data:data};
   api('GET','config').then(function(c){cfg=c;window.easyhost.user.id=c.userId||'shared';resolveReady()}).catch(function(){resolveReady()});
