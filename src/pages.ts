@@ -137,7 +137,11 @@ ${FAVICON_LINK}${SITE_PWA_HEAD}
   code.chip{display:inline-block;background:var(--field);border:1px solid var(--line);border-radius:6px;padding:4px 9px;color:#9ecbff;font-size:13px;margin-top:9px;word-break:break-all}
   .note{margin-top:13px;border:1px solid #45454d;border-radius:8px;padding:13px 14px;font-size:13px;color:var(--fg);line-height:1.6}
   .note b{color:#9ecbff}
-  .alt{margin-top:8px;color:var(--mut);font-size:13px}
+  .h2{font-size:15px;font-weight:600;margin:40px 0 12px}
+  ul.feat{list-style:none;margin:0;padding:0}
+  ul.feat li{position:relative;padding:0 0 12px 18px;color:var(--mut)}
+  ul.feat li::before{content:"";position:absolute;left:0;top:9px;width:5px;height:5px;border-radius:50%;background:#9ecbff}
+  ul.feat li b{color:var(--fg);font-weight:600}
   footer{margin-top:46px;color:var(--mut);font-size:12px;border-top:1px solid var(--line);padding-top:18px}
 </style></head>
 <body><div class="wrap">
@@ -171,6 +175,17 @@ ${FAVICON_LINK}${SITE_PWA_HEAD}
       <p class="sd">Launch from the home-screen icon. It runs full-screen, works offline, saves your data, and can send real push notifications.</p>
     </li>
   </ol>
+
+  <h2 class="h2">What each app gets</h2>
+  <ul class="feat">
+    <li><b>Cloud storage</b> — data is saved on the server, so it survives reinstall and syncs across your devices when you're signed in — not just on this phone.</li>
+    <li><b>Real notifications</b> — one-off, daily, or recurring push that arrive even when the app is closed.</li>
+    <li><b>Installable &amp; offline</b> — runs full-screen from the home-screen icon and works offline after the first load.</li>
+  </ul>
+
+  <h2 class="h2">Sharing an app</h2>
+  <p class="sd">Every app is <b>private to you</b> by default — only you, signed in, can open it. To share one, open your <a href="/dashboard">dashboard</a>, switch it to <b>Public</b>, and send the link; anyone can then open and install it.</p>
+  <p class="sd">About data: people who <b>sign in</b> each get their own private copy; people who <b>don't</b> share one common copy.</p>
 
   <footer>No Claude? You can <a href="/">paste your own HTML</a> on the home page instead.</footer>
 </div></body></html>`;
