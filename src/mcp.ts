@@ -147,7 +147,7 @@ export class EasyHostMCP extends McpAgent<Env> {
               type: "text",
               text:
                 `Published. id: ${id}\nInstallable app URL: ${url}\n\n` +
-                `This app is PRIVATE by default — only the signed-in owner can open it. The user should open it while signed in (same Google account), then Add to Home Screen (iOS Safari) / Install (Android Chrome). To share it with others, set it to Public in the dashboard.\n` +
+                `This app is PRIVATE by default — only the signed-in owner can open it. The user should open it while signed in (same Google account), then Add to Home Screen (iOS Safari) / Install (Android Chrome). To share it, set it to Public in the dashboard — anyone who opens it then signs in and gets their own private copy of the data.\n` +
                 `To revise this app later, call update_app with id "${id}" — that keeps the user's data, reminders, and icon.` +
                 warnText(lint(html)),
             },

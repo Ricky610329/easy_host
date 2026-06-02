@@ -175,15 +175,18 @@ async function serveAppHost(request: Request, env: Env, id: string, sub: string,
   if (!site) return new Response("Not found", { status: 404 });
   if (sub === "/manifest.webmanifest") return manifest(site);
 
-  // HTML-serving: "/" or any unknown subpath (SPA fallback). Enforce private + mint a scoped token.
+  // HTML-serving: "/" or any unknown subpath (SPA fallback). Every app requires sign-in so each
+  // visitor gets their OWN private data namespace: private => owner only; public => any signed-in user.
   if (request.method === "GET") {
     const u = await getSessionUser(request, env);
-    if (site.visibility === "private" && (!u || u.id !== site.owner)) {
-      // Branded interstitial (not a bare bounce to Google) so the visitor has context before consent.
+    const canOpen = site.visibility === "public" ? !!u : !!u && u.id === site.owner;
+    if (!canOpen) {
       const loginUrl = `${accountOrigin(env)}/auth/login?next=${encodeURIComponent(appUrl(env, id))}`;
-      return new Response(renderAppGate(loginUrl), { headers: { "content-type": "text/html;charset=utf-8", "x-robots-tag": "noindex" } });
+      return new Response(renderAppGate(loginUrl, { isPublic: site.visibility === "public", signedIn: !!u }), {
+        headers: { "content-type": "text/html;charset=utf-8", "x-robots-tag": "noindex" },
+      });
     }
-    return serveApp(site, await mintAppToken(env, id, u?.id || "shared"));
+    return serveApp(site, await mintAppToken(env, id, u!.id));
   }
   return new Response("Not found", { status: 404 });
 }

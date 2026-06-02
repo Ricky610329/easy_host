@@ -184,8 +184,8 @@ ${FAVICON_LINK}${SITE_PWA_HEAD}
   </ul>
 
   <h2 class="h2">Sharing an app</h2>
-  <p class="sd">Every app is <b>private to you</b> by default — only you, signed in, can open it. To share one, open your <a href="/dashboard">dashboard</a>, switch it to <b>Public</b>, and send the link; anyone can then open and install it.</p>
-  <p class="sd">About data: people who <b>sign in</b> each get their own private copy; people who <b>don't</b> share one common copy.</p>
+  <p class="sd">Every app is <b>private to you</b> by default — only you can open it. To share one, open your <a href="/dashboard">dashboard</a> and switch it to <b>Public</b>, then send the link.</p>
+  <p class="sd">Anyone you share it with <b>signs in with Google</b> and gets their <b>own private copy</b> of the app's data — so the same app works for everyone without mixing data together.</p>
 
   <footer>No Claude? You can <a href="/">paste your own HTML</a> on the home page instead.</footer>
 </div></body></html>`;
@@ -210,11 +210,19 @@ ${FAVICON_LINK}
 </div></body></html>`;
 }
 
-// Branded interstitial shown on an app subdomain when a logged-out (or wrong-account) visitor opens a
-// PRIVATE app — instead of bouncing straight to a bare Google consent screen with no context.
-export function renderAppGate(loginUrl: string): string {
+// Branded interstitial shown on an app subdomain when a visitor can't open it yet — instead of
+// bouncing straight to a bare Google consent screen. Every app needs sign-in (so each person gets
+// their own private data); the copy differs for a public app vs someone else's private app.
+export function renderAppGate(loginUrl: string, opts: { isPublic: boolean; signedIn: boolean }): string {
+  const title = opts.isPublic ? "Sign in to open this app" : "This app is private";
+  const body = opts.isPublic
+    ? "Apps on ship it keep your data private to your account. Sign in to open it — you'll get your own private copy of its data."
+    : opts.signedIn
+      ? "It belongs to a different account. Sign in with the Google account that created it."
+      : "Only its owner can open it. Sign in with the Google account that created it.";
+  const btn = opts.signedIn && !opts.isPublic ? "Use a different account" : "Sign in with Google";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Private app — ship it</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>ship it</title>
 ${FAVICON_LINK}
 <style>${BASE_CSS}
   body{align-items:center}
@@ -227,9 +235,9 @@ ${FAVICON_LINK}
   .brand{margin-top:30px;font-size:12px;color:var(--mut)}
 </style></head><body><div class="wrap">
   <div class="rk">🚀</div>
-  <h1>This app is private</h1>
-  <p>It's hosted on ship it and only its owner can open it. Sign in with the Google account that created it.</p>
-  <a class="signin" href="${escapeAttr(loginUrl)}">Sign in with Google</a>
+  <h1>${title}</h1>
+  <p>${body}</p>
+  <a class="signin" href="${escapeAttr(loginUrl)}">${btn}</a>
   <div class="brand">ship it · install AI-built apps on your phone</div>
 </div></body></html>`;
 }
