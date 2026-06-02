@@ -27,7 +27,7 @@ Domain: **ship-it-app.com**. Connector: **https://ship-it-app.com/mcp**.
 - Friendly site-wide **oops page**; instant operator kill `POST /admin/close|/admin/open`.
 - **Auto-shutoff cron** (armed): a `*/15` job reads Cloudflare request analytics; if a UTC day exceeds
   `DAILY_REQUEST_BUDGET` (=80000) it closes the site, auto-recovers next day. Fail-safe on read error.
-- Quotas: 100 apps/user, per-IP rate limit; `getSite`/`isBlocked` isolate caches keep KV reads low.
+- Quotas: 10 apps/user, per-IP rate limit; `getSite`/`isBlocked` isolate caches keep KV reads low.
 
 ## Tests
 - `npm test` → 45 vitest (util crypto/tokens/cron, files path-safety/limits, store routing/visibility, auth/safeNext).
