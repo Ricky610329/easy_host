@@ -14,7 +14,7 @@
     { "pattern": "*.ship-it-app.com/*", "zone_name": "ship-it-app.com" }
   ],
 
-  // Stores each published site as JSON { html, name, theme_color }.
+  // Stores each published site as JSON: { files: {path->text} (or html), name, theme_color, icon, owner, visibility }.
   // Replace "id" with the value printed by:  npx wrangler kv namespace create SITES
   "kv_namespaces": [
     { "binding": "SITES", "id": "9bca04575f3449adb3c47a2454681c3a" },

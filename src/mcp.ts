@@ -16,7 +16,7 @@ const BUILD_GUIDE = [
   "including scheduled and recurring reminders that fire even when the app is closed. Build for a phone.",
   "",
   "## 1. Files & constraints",
-  "- Ship EITHER one self-contained <!doctype html> document (publish_app `html`), OR several text files (publish_app `files` map: index.html + app.js + styles.css + more). No build step / bundler — you provide the final files.",
+  "- Ship EITHER one self-contained <!doctype html> document (publish_app `html`), OR several text files (publish_app `files`: a list of { path, content } — index.html + app.js + styles.css + more). No build step / bundler — you provide the final files.",
   "- Multi-file: index.html is the entry (head tags + the easyhost SDK are injected into it). Reference siblings with normal relative URLs — <script src='app.js'>, <link href='styles.css'>, or ESM import './x.js'. Text files only (html/js/mjs/css/json/svg/txt; up to 20 files, ~2MB total); put images on a URL/CDN or a data: URI.",
   "- The network IS available — build online apps freely: fetch external APIs, embed <iframe>s (maps, video, widgets), load remote images, or pull a library from a CDN.",
   "- update_app can send just the changed files (they're merged) — cheaper than resending the whole app.",
@@ -131,10 +131,10 @@ export class EasyHostMCP extends McpAgent<Env> {
               "SDK are injected — do not add them. Provide this OR `files`."
           ),
         files: z
-          .record(z.string(), z.string())
+          .array(z.object({ path: z.string(), content: z.string() }))
           .optional()
           .describe(
-            "Multi-file app: a map of relative path -> text content, e.g. { \"index.html\": \"...\", \"app.js\": \"...\", \"styles.css\": \"...\" }. " +
+            "Multi-file app: a list of files, e.g. [{ path: 'index.html', content: '...' }, { path: 'app.js', content: '...' }, { path: 'styles.css', content: '...' }]. " +
               "MUST include index.html (the entry; head tags + SDK are injected into it). Reference siblings with normal relative URLs " +
               "(<script src=\"app.js\">, import './x.js'). Text files only (html/js/mjs/css/json/svg/txt); images via URL/CDN/data-URI. Provide this OR `html`."
           ),
@@ -143,7 +143,7 @@ export class EasyHostMCP extends McpAgent<Env> {
         icon: z.string().optional().describe("One letter or digit (A-Z / 0-9) for the home-screen icon monogram. Defaults to the app name's first letter; set this for non-Latin names (e.g. 'W' for a water app)."),
       },
       async ({ html, files, name, theme_color, icon }) => {
-        const built = buildFiles(html, files);
+        const built = buildFiles(html, filesToMap(files));
         if (built.error) return { content: [{ type: "text", text: `Error: ${built.error}` }], isError: true };
         const owner = (this.props as { id?: string } | undefined)?.id;
         if (!owner) return { content: [{ type: "text", text: "Please sign in: reconnect this easy_host connector and authorize with Google." }], isError: true };
@@ -181,7 +181,10 @@ export class EasyHostMCP extends McpAgent<Env> {
       {
         id: z.string().describe("The app id returned by publish_app."),
         html: z.string().optional().describe("Replace the single-file document / the index.html entry. Provide this OR `files`."),
-        files: z.record(z.string(), z.string()).optional().describe("Files to add or replace (merged into the existing app — send only what changed). Provide this OR `html`."),
+        files: z
+          .array(z.object({ path: z.string(), content: z.string() }))
+          .optional()
+          .describe("Files to add or replace, e.g. [{ path:'app.js', content:'...' }] — merged into the existing app, so send ONLY what changed."),
         removeFiles: z.array(z.string()).optional().describe("Paths to delete from the app (index.html cannot be removed)."),
         name: z.string().optional().describe("Optional new app name."),
         theme_color: z.string().optional().describe("Optional new theme color hex."),
@@ -197,7 +200,8 @@ export class EasyHostMCP extends McpAgent<Env> {
         if (existing.owner && existing.owner !== owner)
           return { content: [{ type: "text", text: "You don't own this app, so it can't be updated from this account." }], isError: true };
         // Merge the patch (html replaces index.html) into the existing files, then validate the result.
-        const patch = html !== undefined ? { ...(files || {}), [ENTRY]: html } : files;
+        const patchMap = filesToMap(files);
+        const patch = html !== undefined ? { ...(patchMap || {}), [ENTRY]: html } : patchMap;
         const merged = mergeFiles(siteFiles(existing), patch, removeFiles);
         const ok = sanitizeFiles(merged);
         if (ok.error) return { content: [{ type: "text", text: `Error: ${ok.error}` }], isError: true };
@@ -226,6 +230,15 @@ export class EasyHostMCP extends McpAgent<Env> {
       }
     );
   }
+}
+
+// Tool args carry files as a [{path,content}] array (converts cleanly to JSON Schema, unlike z.record);
+// turn it into a path->content map. Returns undefined for an empty/absent list.
+function filesToMap(files: { path: string; content: string }[] | undefined): Record<string, string> | undefined {
+  if (!files || !files.length) return undefined;
+  const map: Record<string, string> = {};
+  for (const f of files) map[f.path] = f.content;
+  return map;
 }
 
 // Resolve publish_app's html|files into a validated files map (single-file html => { index.html }).
