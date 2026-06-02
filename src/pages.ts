@@ -11,6 +11,7 @@ const FAVICON_LINK = `<link rel="icon" href="/favicon.svg?v=2" type="image/svg+x
 const BASE_CSS = `
   :root{--bg:#0c0c0d;--fg:#ededec;--mut:#7c7c82;--line:#1f1f22;--field:#111113;--btn:#ededec;--btnfg:#0c0c0d}
   *{box-sizing:border-box}
+  html{touch-action:manipulation;-webkit-text-size-adjust:100%}
   html,body{margin:0}
   body{font:14px/1.65 ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased;display:flex;justify-content:center;padding:0 20px}
   a{color:#9ecbff;text-decoration:none}a:hover{text-decoration:underline}
