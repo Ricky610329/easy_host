@@ -122,8 +122,8 @@ async function handleAppsApi(request: Request, env: Env, sub: string): Promise<R
     if (!site || site.owner !== user.id) return json({ error: "not found" }, 404);
     const b = (await request.json().catch(() => ({}))) as { visibility?: string };
     if (b.visibility !== "private" && b.visibility !== "public") return json({ error: "bad visibility" }, 400);
-    site.visibility = b.visibility;
-    await putSite(env, mVis[1], site);
+    // Build a fresh object — `site` may be the cached reference; mutating it would desync the cache if the put fails.
+    await putSite(env, mVis[1], { ...site, visibility: b.visibility });
     return json({ ok: true });
   }
   const mDel = sub.match(/^\/([A-Za-z0-9_-]+)$/);
@@ -184,7 +184,14 @@ async function serveAppHost(request: Request, env: Env, id: string, sub: string,
     const size = sub === "/icon-512.png" ? 512 : sub === "/apple-touch-icon.png" ? 180 : 192;
     return serveIcon(size, site);
   }
-  if (sub === "/manifest.webmanifest") return manifest(site);
+  if (sub === "/manifest.webmanifest") {
+    // Redact the (owner-chosen) name for non-owners so a private app's branding doesn't leak to
+    // someone who only knows the id. The manifest link is crossorigin=use-credentials, so the
+    // owner's cookie rides along and they get the real name.
+    const u = await getSessionUser(request, env);
+    const open = canOpenApp(site.visibility, u ? u.id : null, site.owner);
+    return manifest(open ? site : { ...site, name: "App", icon: undefined });
+  }
   if (request.method !== "GET") return new Response("Not found", { status: 404 });
 
   // EVERY file (entry, asset, or SPA fallback) requires sign-in — so a private app's JS/CSS never

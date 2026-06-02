@@ -73,7 +73,10 @@ export class AppBackend extends Agent<Env> {
         return { status: 200, json: { cancelled: await this.cancelByTag(ns, tag) } };
       }
       if (path.startsWith("reminders/") && method === "DELETE") {
-        await this.cancelSchedule(decodeURIComponent(path.slice("reminders/".length)));
+        const rid = decodeURIComponent(path.slice("reminders/".length));
+        // Only cancel a reminder that belongs to THIS namespace (a public app shares one DO across users).
+        const sch = ((await this.listSchedules()) as any[]).find((s) => s.id === rid);
+        if (sch && sch.payload?.ns === ns) await this.cancelSchedule(rid);
         return { status: 200, json: { ok: true } };
       }
       if (path === "data" && method === "GET") {
