@@ -100,7 +100,7 @@ export class EasyHostMCP extends McpAgent<Env> {
         "data and real push notifications (including scheduled/recurring reminders). " +
         "BEFORE generating any app, call get_build_guide once and follow it. Apps get auto-injected PWA tags plus a " +
         "global `easyhost` SDK (easyhost.data for storage, easyhost.notify for notifications) — use them; do not add your own " +
-        "manifest/service worker. Generate a COMPLETE self-contained HTML document and call publish_app; it returns an id. " +
+        "manifest/service worker. Generate the app — a single self-contained HTML document, or several files (publish_app `files`) for a multi-screen app — and call publish_app; it returns an id. " +
         "To revise an existing app, call update_app with that id (this preserves the user's saved data, reminders, and home-screen icon) " +
         "— do NOT call publish_app again for edits. Then give the user the URL and tell them to Add to Home Screen.",
     }
