@@ -53,7 +53,6 @@ ${BASE_CSS}
   .priv{color:var(--mut);font-size:12px;margin:14px 0 0}
   .signin{display:inline-block;border:1px solid var(--line);background:var(--field);color:var(--fg);border-radius:8px;padding:8px 14px;font-size:13px}
   .signin:hover{border-color:#45454d;text-decoration:none}
-  header.top nav .who{color:var(--mut);font-size:12px;margin-right:4px}
   #authnote{display:none;margin-top:16px;border:1px solid #45454d;border-radius:8px;padding:16px;font-size:13px;color:var(--fg)}
 </style>
 </head>
@@ -61,7 +60,7 @@ ${BASE_CSS}
 <div class="wrap">
   <header class="top">
     <div class="brand">ship it <span>🚀</span></div>
-    <nav><a href="/how">How it works</a>${user ? `<span class="who">${escapeAttr(user.email)}</span><a href="/dashboard">Dashboard</a>` : `<a class="signin" href="/auth/login?next=%2F">Sign in with Google</a>`}</nav>
+    <nav><a href="/how">How it works</a>${user ? `<a href="/dashboard">Dashboard</a>` : `<a class="signin" href="/auth/login?next=%2F">Sign in with Google</a>`}</nav>
   </header>
 
   <h1>Ship a real app to your phone.</h1>

@@ -164,6 +164,7 @@ async function handleAdminClose(request: Request, env: Env, close: boolean): Pro
 async function serveAppHost(request: Request, env: Env, id: string, sub: string, url: URL): Promise<Response> {
   if (await isBlocked(env, id)) return new Response("This app has been disabled.", { status: 410 });
   if (sub.startsWith("/api/")) return handleApi(request, env, id, sub.slice("/api/".length), url);
+  if (sub === "/robots.txt") return new Response("User-agent: *\nDisallow: /\n", { headers: { "content-type": "text/plain; charset=utf-8" } });
   if (sub === "/sw.js") return serveSW();
   if (sub === "/sdk.js") return serveSdk();
   if (sub === "/icon-192.png" || sub === "/icon-512.png" || sub === "/apple-touch-icon.png") {
@@ -211,6 +212,16 @@ const appRouter: ExportedHandler<Env> = {
     if (path === "/authorize/google-callback") return handleAuthorizeCallback(request, env);
     if (path === "/favicon.svg") {
       return new Response(FAVICON_SVG, { headers: { "content-type": "image/svg+xml; charset=utf-8", "cache-control": "public, max-age=86400" } });
+    }
+    // SEO: only the marketing site is crawlable; app subdomains serve their own Disallow robots.txt.
+    if (path === "/robots.txt") {
+      const body = `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /auth/\nDisallow: /authorize\nDisallow: /dashboard\nSitemap: ${accountOrigin(env)}/sitemap.xml\n`;
+      return new Response(body, { headers: { "content-type": "text/plain; charset=utf-8" } });
+    }
+    if (path === "/sitemap.xml") {
+      const o = accountOrigin(env);
+      const body = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>${o}/</loc></url>\n<url><loc>${o}/how</loc></url>\n</urlset>\n`;
+      return new Response(body, { headers: { "content-type": "application/xml; charset=utf-8" } });
     }
     // The ship-it site itself is an installable PWA (rocket icon).
     if (path === "/manifest.webmanifest") return siteManifest();
