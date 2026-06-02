@@ -14,11 +14,10 @@ const BUILD_GUIDE = [
   "and gives it a backend: persistent data (easyhost.data) and real push notifications (easyhost.notify),",
   "including scheduled and recurring reminders that fire even when the app is closed. Build for a phone.",
   "",
-  "## 1. Hard constraints (offline is a feature)",
-  "- Output ONE complete <!doctype html> document. Put ALL CSS in a <style> tag and ALL JS in <script> tags, inline.",
-  "- NO external resources: no CDN scripts, no Google Fonts, no external <link>/<script src>/<img src=\"http...\">. The app must work offline after first load.",
-  "- Embed any images/sounds as data: URIs; prefer inline SVG and CSS gradients over raster images.",
-  "- No build step, no bundler-dependent frameworks. Vanilla JS (or a tiny library pasted in full) only.",
+  "## 1. The one hard rule: a single self-contained file",
+  "- Output ONE complete <!doctype html> document, with YOUR OWN CSS in <style> and JS in <script>, inline. We host exactly one file per app — no build step, no bundler, no extra files to upload.",
+  "- The network IS available — build online apps freely: fetch external APIs, embed <iframe>s (maps, video, widgets), load remote images, or pull a library from a CDN. Do whatever the app needs.",
+  "- Offline is optional, not required. For a simple self-contained tool it's nice to inline assets / use data: URIs so it keeps working with no connection — do that when it fits, skip it when the app is inherently online.",
   "",
   "## 2. Already injected for you — do NOT add these",
   "- Viewport meta, theme-color, web app manifest, apple-touch meta/icon, app icons, and the service worker (registered for you).",
@@ -61,7 +60,7 @@ const BUILD_GUIDE = [
   "- Support dark mode via prefers-color-scheme and set a matching theme color. Respect prefers-reduced-motion.",
   "",
   "## 7. Before you publish — checklist",
-  "- Single file, everything inline, zero external URLs?",
+  "- One self-contained HTML document (your own CSS/JS inline; external APIs/iframes/CDNs are fine if the app needs them)?",
   "- Uses easyhost.data for anything worth keeping?",
   "- Notifications behind a button + an install check, with iOS guidance?",
   "- 100dvh + safe-area padding + 44px touch targets?",
@@ -71,9 +70,7 @@ const BUILD_GUIDE = [
 // Cheap heuristics surfaced back to the AI so it can self-correct via update_app.
 function lint(html: string): string[] {
   const w: string[] = [];
-  if (/<script[^>]+src=["']https?:/i.test(html)) w.push("External <script src> will not load offline — inline the code instead.");
-  if (/<link[^>]+href=["']https?:/i.test(html)) w.push("External <link> (CSS/font) breaks offline — inline your CSS and use system fonts.");
-  if (/<img[^>]+src=["']https?:/i.test(html)) w.push("External <img> will not show offline — embed images as data URIs or inline SVG.");
+  // External resources are allowed (online apps are fine) — only flag genuine issues.
   if (html.length > 1_500_000) w.push("App HTML is very large (>1.5MB) — consider trimming.");
   if (/localStorage\./.test(html) && !/easyhost\.data/.test(html))
     w.push("Uses localStorage but not easyhost.data — localStorage is wiped on reinstall; use easyhost.data for durable storage.");
@@ -118,8 +115,9 @@ export class EasyHostMCP extends McpAgent<Env> {
         html: z
           .string()
           .describe(
-            "The COMPLETE, standalone HTML document. ALL CSS and JS inline; no external files. A viewport, manifest, service " +
-              "worker, icons, and the `easyhost` SDK are injected automatically — do not add them. Follow get_build_guide."
+            "The COMPLETE HTML document, hosted as a single file — put YOUR CSS/JS inline (the app may still use the network: " +
+              "external APIs, iframes, CDNs, remote images are all fine). A viewport, manifest, service worker, icons, and the " +
+              "`easyhost` SDK are injected automatically — do not add them. Follow get_build_guide."
           ),
         name: z.string().optional().describe("Short app name on the home screen (e.g. 'Water Reminder'). Under ~30 chars."),
         theme_color: z.string().optional().describe("Theme color hex, e.g. '#4f46e5'."),
