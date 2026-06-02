@@ -168,7 +168,20 @@ export class AppBackend extends Agent<Env> {
     const all = await this.listSchedules();
     return all
       .filter((s: any) => s.payload && s.payload.ns === ns)
-      .map((s: any) => ({ id: s.id, tag: s.payload.tag ?? null, title: s.payload.title, body: s.payload.body, type: s.type, time: s.time ?? null, cron: s.cron ?? null }));
+      .map((s: any) => ({
+        id: s.id,
+        tag: s.payload.tag ?? null,
+        title: s.payload.title,
+        body: s.payload.body,
+        url: s.payload.url ?? null,
+        icon: s.payload.icon ?? null,
+        image: s.payload.image ?? null,
+        badge: s.payload.badge ?? null,
+        bodies: s.payload.bodies ?? null,
+        type: s.type,
+        time: s.time ?? null,
+        cron: s.cron ?? null,
+      }));
   }
 
   // Alarm callback (must be public so this.schedule can invoke it by name).
