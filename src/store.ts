@@ -3,14 +3,36 @@ import type { Env, Site } from "./types";
 
 export const MAX_HTML_BYTES = 2_000_000; // hard cap on a published page (KV allows 25MiB, but bound abuse)
 
+// Short isolate cache so a multi-file app load (index.html + several assets, each calling getSite)
+// collapses to one KV read. Busted by putSite/delSite; <=SITE_TTL staleness across isolates after an update.
+const siteCache = new Map<string, { at: number; site: Site | null }>();
+const SITE_TTL = 5000;
+
 export async function getSite(env: Env, id: string): Promise<Site | null> {
+  const now = Date.now();
+  const c = siteCache.get(id);
+  if (c && now - c.at < SITE_TTL) return c.site;
   const raw = await env.SITES.get(id);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as Site;
-  } catch {
-    return null;
+  let site: Site | null = null;
+  if (raw) {
+    try {
+      site = JSON.parse(raw) as Site;
+    } catch {
+      site = null;
+    }
   }
+  if (siteCache.size > 5000) siteCache.clear();
+  siteCache.set(id, { at: now, site });
+  return site;
+}
+// Write/delete a site THROUGH these so the getSite cache stays coherent in this isolate.
+export async function putSite(env: Env, id: string, site: Site): Promise<void> {
+  await env.SITES.put(id, JSON.stringify(site));
+  siteCache.set(id, { at: Date.now(), site });
+}
+export async function delSite(env: Env, id: string): Promise<void> {
+  await env.SITES.delete(id);
+  siteCache.set(id, { at: Date.now(), site: null });
 }
 
 export function baseUrl(env: Env): string {

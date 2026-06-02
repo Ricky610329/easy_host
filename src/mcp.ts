@@ -4,7 +4,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Env, Site } from "./types";
 import { genId } from "./util";
-import { MAX_HTML_BYTES, appUrl, getSite, indexAddApp, reserveAppSlot, serviceClosedReason, userAppCapReached } from "./store";
+import { MAX_HTML_BYTES, appUrl, getSite, indexAddApp, putSite, reserveAppSlot, serviceClosedReason, userAppCapReached } from "./store";
+import { ENTRY, mergeFiles, sanitizeFiles, siteFiles } from "./files";
 
 // ---------- the build guide handed to the AI (no backticks: this is a template literal) ----------
 const BUILD_GUIDE = [
@@ -14,9 +15,11 @@ const BUILD_GUIDE = [
   "and gives it a backend: persistent data (easyhost.data) and real push notifications (easyhost.notify),",
   "including scheduled and recurring reminders that fire even when the app is closed. Build for a phone.",
   "",
-  "## 1. The one hard rule: a single self-contained file",
-  "- Output ONE complete <!doctype html> document, with YOUR OWN CSS in <style> and JS in <script>, inline. We host exactly one file per app — no build step, no bundler, no extra files to upload.",
-  "- The network IS available — build online apps freely: fetch external APIs, embed <iframe>s (maps, video, widgets), load remote images, or pull a library from a CDN. Do whatever the app needs.",
+  "## 1. Files & constraints",
+  "- Ship EITHER one self-contained <!doctype html> document (publish_app `html`), OR several text files (publish_app `files` map: index.html + app.js + styles.css + more). No build step / bundler — you provide the final files.",
+  "- Multi-file: index.html is the entry (head tags + the easyhost SDK are injected into it). Reference siblings with normal relative URLs — <script src='app.js'>, <link href='styles.css'>, or ESM import './x.js'. Text files only (html/js/mjs/css/json/svg/txt; up to 20 files, ~2MB total); put images on a URL/CDN or a data: URI.",
+  "- The network IS available — build online apps freely: fetch external APIs, embed <iframe>s (maps, video, widgets), load remote images, or pull a library from a CDN.",
+  "- update_app can send just the changed files (they're merged) — cheaper than resending the whole app.",
   "- Offline is optional, not required. For a simple self-contained tool it's nice to inline assets / use data: URIs so it keeps working with no connection — do that when it fits, skip it when the app is inherently online.",
   "",
   "## 2. Already injected for you — do NOT add these",
@@ -66,7 +69,7 @@ const BUILD_GUIDE = [
   "- Support dark mode via prefers-color-scheme and set a matching theme color. Respect prefers-reduced-motion.",
   "",
   "## 7. Before you publish — checklist",
-  "- One self-contained HTML document (your own CSS/JS inline; external APIs/iframes/CDNs are fine if the app needs them)?",
+  "- One self-contained HTML document, or a `files` map with index.html (external APIs/iframes/CDNs are fine if the app needs them)?",
   "- Uses easyhost.data for anything worth keeping?",
   "- Notifications behind a button + an install check, with iOS guidance?",
   "- 100dvh + safe-area padding + 44px touch targets?",
@@ -115,45 +118,56 @@ export class EasyHostMCP extends McpAgent<Env> {
 
     this.server.tool(
       "publish_app",
-      "Publish a NEW self-contained web app so the user can open it on their phone and install it as an app (PWA), with data + notifications. " +
-        "Call get_build_guide first. Returns an id and URL. Use update_app (not publish_app) to revise an existing app.",
+      "Publish a NEW web app so the user can open it on their phone and install it as an app (PWA), with data + notifications. " +
+        "Provide a single `html` document, OR a `files` map for a multi-file app. Call get_build_guide first. " +
+        "Returns an id and URL. Use update_app (not publish_app) to revise an existing app.",
       {
         html: z
           .string()
+          .optional()
           .describe(
-            "The COMPLETE HTML document, hosted as a single file — put YOUR CSS/JS inline (the app may still use the network: " +
-              "external APIs, iframes, CDNs, remote images are all fine). A viewport, manifest, service worker, icons, and the " +
-              "`easyhost` SDK are injected automatically — do not add them. Follow get_build_guide."
+            "Single-file app: the COMPLETE HTML document (your CSS/JS inline). The app may use the network freely " +
+              "(external APIs, iframes, CDNs, remote images). A viewport, manifest, service worker, icons, and the `easyhost` " +
+              "SDK are injected — do not add them. Provide this OR `files`."
+          ),
+        files: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe(
+            "Multi-file app: a map of relative path -> text content, e.g. { \"index.html\": \"...\", \"app.js\": \"...\", \"styles.css\": \"...\" }. " +
+              "MUST include index.html (the entry; head tags + SDK are injected into it). Reference siblings with normal relative URLs " +
+              "(<script src=\"app.js\">, import './x.js'). Text files only (html/js/mjs/css/json/svg/txt); images via URL/CDN/data-URI. Provide this OR `html`."
           ),
         name: z.string().optional().describe("Short app name on the home screen (e.g. 'Water Reminder'). Under ~30 chars."),
         theme_color: z.string().optional().describe("Theme color hex, e.g. '#4f46e5'."),
         icon: z.string().optional().describe("One letter or digit (A-Z / 0-9) for the home-screen icon monogram. Defaults to the app name's first letter; set this for non-Latin names (e.g. 'W' for a water app)."),
       },
-      async ({ html, name, theme_color, icon }) => {
-        if (!html || !html.trim()) return { content: [{ type: "text", text: "Error: html is empty." }], isError: true };
+      async ({ html, files, name, theme_color, icon }) => {
+        const built = buildFiles(html, files);
+        if (built.error) return { content: [{ type: "text", text: `Error: ${built.error}` }], isError: true };
         const owner = (this.props as { id?: string } | undefined)?.id;
         if (!owner) return { content: [{ type: "text", text: "Please sign in: reconnect this easy_host connector and authorize with Google." }], isError: true };
-        if (html.length > MAX_HTML_BYTES) return { content: [{ type: "text", text: "App HTML is too large (max ~2 MB). Trim it and try again." }], isError: true };
         const closed = serviceClosedReason(this.env);
         if (closed) return { content: [{ type: "text", text: closed }], isError: true };
         if (await userAppCapReached(this.env, owner))
           return { content: [{ type: "text", text: "You've reached your app limit on this instance. Delete an app in your dashboard, or self-host to raise the cap." }], isError: true };
         if (!(await reserveAppSlot(this.env)))
           return { content: [{ type: "text", text: "This public demo has reached its app limit — deploy your own instance to keep going." }], isError: true };
-        const site: Site = { html, name: name?.slice(0, 60), theme_color: theme_color?.slice(0, 16), icon: icon?.slice(0, 2), owner, visibility: "private" };
+        const site: Site = { files: built.files, name: name?.slice(0, 60), theme_color: theme_color?.slice(0, 16), icon: icon?.slice(0, 2), owner, visibility: "private" };
         const id = genId();
-        await this.env.SITES.put(id, JSON.stringify(site));
+        await putSite(this.env, id, site);
         await indexAddApp(this.env, owner, id);
         const url = appUrl(this.env, id);
+        const n = Object.keys(built.files!).length;
         return {
           content: [
             {
               type: "text",
               text:
-                `Published. id: ${id}\nInstallable app URL: ${url}\n\n` +
+                `Published${n > 1 ? ` (${n} files)` : ""}. id: ${id}\nInstallable app URL: ${url}\n\n` +
                 `This app is PRIVATE by default — only the signed-in owner can open it. The user should open it while signed in (same Google account), then Add to Home Screen (iOS Safari) / Install (Android Chrome). To share it, set it to Public in the dashboard — anyone who opens it then signs in and gets their own private copy of the data.\n` +
-                `To revise this app later, call update_app with id "${id}" — that keeps the user's data, reminders, and icon.` +
-                warnText(lint(html)),
+                `To revise this app later, call update_app with id "${id}" — that keeps the user's data, reminders, and icon (and you can update just the changed files).` +
+                warnText(lint(Object.values(built.files!).join("\n"))),
             },
           ],
         };
@@ -162,17 +176,18 @@ export class EasyHostMCP extends McpAgent<Env> {
 
     this.server.tool(
       "update_app",
-      "Revise an EXISTING app in place (same id, URL, icon, saved data, and reminders are preserved). Use this for every edit after publish_app.",
+      "Revise an EXISTING app in place (same id, URL, icon, saved data, and reminders are preserved). Use this for every edit after publish_app. " +
+        "For a multi-file app you can send ONLY the changed files (they're merged), which is cheaper than resending everything.",
       {
         id: z.string().describe("The app id returned by publish_app."),
-        html: z.string().describe("The new complete self-contained HTML document (replaces the old one)."),
+        html: z.string().optional().describe("Replace the single-file document / the index.html entry. Provide this OR `files`."),
+        files: z.record(z.string(), z.string()).optional().describe("Files to add or replace (merged into the existing app — send only what changed). Provide this OR `html`."),
+        removeFiles: z.array(z.string()).optional().describe("Paths to delete from the app (index.html cannot be removed)."),
         name: z.string().optional().describe("Optional new app name."),
         theme_color: z.string().optional().describe("Optional new theme color hex."),
         icon: z.string().optional().describe("Optional new icon monogram letter/digit."),
       },
-      async ({ id, html, name, theme_color, icon }) => {
-        if (!html || !html.trim()) return { content: [{ type: "text", text: "Error: html is empty." }], isError: true };
-        if (html.length > MAX_HTML_BYTES) return { content: [{ type: "text", text: "App HTML is too large (max ~2 MB). Trim it and try again." }], isError: true };
+      async ({ id, html, files, removeFiles, name, theme_color, icon }) => {
         const owner = (this.props as { id?: string } | undefined)?.id;
         if (!owner) return { content: [{ type: "text", text: "Please sign in: reconnect this easy_host connector and authorize with Google." }], isError: true };
         const closed = serviceClosedReason(this.env);
@@ -181,8 +196,20 @@ export class EasyHostMCP extends McpAgent<Env> {
         if (!existing) return { content: [{ type: "text", text: `Error: no app with id "${id}". Use publish_app to create one.` }], isError: true };
         if (existing.owner && existing.owner !== owner)
           return { content: [{ type: "text", text: "You don't own this app, so it can't be updated from this account." }], isError: true };
-        const site: Site = { html, name: name ?? existing.name, theme_color: theme_color ?? existing.theme_color, icon: icon?.slice(0, 2) ?? existing.icon, owner, visibility: existing.visibility === "public" ? "public" : "private" };
-        await this.env.SITES.put(id, JSON.stringify(site));
+        // Merge the patch (html replaces index.html) into the existing files, then validate the result.
+        const patch = html !== undefined ? { ...(files || {}), [ENTRY]: html } : files;
+        const merged = mergeFiles(siteFiles(existing), patch, removeFiles);
+        const ok = sanitizeFiles(merged);
+        if (ok.error) return { content: [{ type: "text", text: `Error: ${ok.error}` }], isError: true };
+        const site: Site = {
+          files: ok.files,
+          name: name ?? existing.name,
+          theme_color: theme_color ?? existing.theme_color,
+          icon: icon?.slice(0, 2) ?? existing.icon,
+          owner,
+          visibility: existing.visibility === "public" ? "public" : "private",
+        };
+        await putSite(this.env, id, site);
         await indexAddApp(this.env, owner, id);
         const url = appUrl(this.env, id);
         return {
@@ -190,13 +217,23 @@ export class EasyHostMCP extends McpAgent<Env> {
             {
               type: "text",
               text:
-                `Updated app ${id}. URL (unchanged): ${url}\n` +
+                `Updated app ${id} (${Object.keys(ok.files!).length} files). URL (unchanged): ${url}\n` +
                 `The user's saved data, reminders, and home-screen icon are preserved. They get the new version next time they open it.` +
-                warnText(lint(html)),
+                warnText(lint(Object.values(ok.files!).join("\n"))),
             },
           ],
         };
       }
     );
   }
+}
+
+// Resolve publish_app's html|files into a validated files map (single-file html => { index.html }).
+function buildFiles(html: string | undefined, files: Record<string, string> | undefined): { files?: Record<string, string>; error?: string } {
+  if (files && Object.keys(files).length) return sanitizeFiles(files);
+  if (html && html.trim()) {
+    if (html.length > MAX_HTML_BYTES) return { error: "App HTML is too large (max ~2 MB)." };
+    return { files: { [ENTRY]: html } };
+  }
+  return { error: "provide `html` (single file) or `files` (multi-file, must include index.html)." };
 }

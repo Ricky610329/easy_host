@@ -36,7 +36,8 @@ export interface SessionUser {
 }
 
 export interface Site {
-  html: string;
+  html?: string; // single-file app (legacy/paste-form); read via siteFiles() as { "index.html": html }
+  files?: Record<string, string>; // multi-file app: path -> text content (entry = index.html)
   name?: string;
   theme_color?: string;
   icon?: string; // optional monogram char(s) for the generated lettermark icon

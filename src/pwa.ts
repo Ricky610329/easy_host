@@ -5,12 +5,13 @@ import { escapeAttr } from "./util";
 const DEFAULT_NAME = "App";
 const DEFAULT_THEME = "#4f46e5";
 
-// ---------- head injection (relative URLs only, so it works for every site id under /s/:id/) ----------
-function injectBlock(name: string, theme: string, token: string): string {
+// ---------- head injection. `base` is the app's ABSOLUTE root ("/" on a subdomain, "/s/:id/" in
+// path mode) so relative assets/SW resolve correctly from any route, including deep SPA paths. ----------
+function injectBlock(name: string, theme: string, token: string, base: string): string {
   const t = escapeAttr(theme);
   const n = escapeAttr(name);
   return (
-    `<base href="./">` +
+    `<base href="${escapeAttr(base)}">` +
     `<script>window.__EH_TOKEN__=${JSON.stringify(token)}</script>` +
     `<link rel="manifest" href="manifest.webmanifest">` +
     `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">` +
@@ -27,9 +28,8 @@ function injectBlock(name: string, theme: string, token: string): string {
   );
 }
 
-export function serveApp(site: Site, token: string): Response {
-  const block = injectBlock(site.name || DEFAULT_NAME, site.theme_color || DEFAULT_THEME, token);
-  const html = site.html;
+export function serveApp(html: string, opts: { name?: string; theme_color?: string; token: string; base: string }): Response {
+  const block = injectBlock(opts.name || DEFAULT_NAME, opts.theme_color || DEFAULT_THEME, opts.token, opts.base);
   const lower = html.toLowerCase();
   // noindex: hosted apps are users' own content (private or shared by link) — keep them out of search.
   const headers = { "content-type": "text/html;charset=utf-8", "x-robots-tag": "noindex" };

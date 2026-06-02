@@ -13,9 +13,11 @@ import {
   getSite,
   indexAddApp,
   indexRemoveApp,
+  delSite,
   isBlocked,
   isServiceHardClosed,
   listOwnerApps,
+  putSite,
   rateLimited,
   releaseAppSlot,
   reserveAppSlot,
@@ -25,6 +27,7 @@ import {
   subdomainMode,
   userAppCapReached,
 } from "./store";
+import { ENTRY, contentTypeFor, requestToFileKey, siteFiles } from "./files";
 import {
   clearSessionCookie,
   getSessionUser,
@@ -75,7 +78,7 @@ async function handleCreate(request: Request, env: Env): Promise<Response> {
     visibility: "private",
   };
   const id = genId();
-  await env.SITES.put(id, JSON.stringify(site));
+  await putSite(env, id, site);
   await indexAddApp(env, user.id, id);
   return json({ id, url: appUrl(env, id) });
 }
@@ -120,14 +123,14 @@ async function handleAppsApi(request: Request, env: Env, sub: string): Promise<R
     const b = (await request.json().catch(() => ({}))) as { visibility?: string };
     if (b.visibility !== "private" && b.visibility !== "public") return json({ error: "bad visibility" }, 400);
     site.visibility = b.visibility;
-    await env.SITES.put(mVis[1], JSON.stringify(site));
+    await putSite(env, mVis[1], site);
     return json({ ok: true });
   }
   const mDel = sub.match(/^\/([A-Za-z0-9_-]+)$/);
   if (mDel && request.method === "DELETE") {
     const site = await getSite(env, mDel[1]);
     if (!site || site.owner !== user.id) return json({ error: "not found" }, 404);
-    await env.SITES.delete(mDel[1]);
+    await delSite(env, mDel[1]);
     await indexRemoveApp(env, user.id, mDel[1]);
     await releaseAppSlot(env);
     return json({ ok: true });
@@ -164,34 +167,45 @@ async function handleAdminClose(request: Request, env: Env, close: boolean): Pro
 
 // Serve a single hosted app. `sub` is the app-relative path ("/", "/sw.js", "/api/...", or any
 // other path -> SPA fallback). Used for both the app subdomain and path-mode /s/:id/.
+function appBase(env: Env, id: string): string {
+  return subdomainMode(env) ? "/" : `/s/${id}/`;
+}
+
 async function serveAppHost(request: Request, env: Env, id: string, sub: string, url: URL): Promise<Response> {
   if (await isBlocked(env, id)) return new Response("This app has been disabled.", { status: 410 });
+  // Our reserved endpoints take precedence over any app file of the same name.
   if (sub.startsWith("/api/")) return handleApi(request, env, id, sub.slice("/api/".length), url);
   if (sub === "/robots.txt") return new Response("User-agent: *\nDisallow: /\n", { headers: { "content-type": "text/plain; charset=utf-8" } });
   if (sub === "/sw.js") return serveSW();
   if (sub === "/sdk.js") return serveSdk();
-  if (sub === "/icon-192.png" || sub === "/icon-512.png" || sub === "/apple-touch-icon.png") {
-    const size = sub === "/icon-512.png" ? 512 : sub === "/apple-touch-icon.png" ? 180 : 192;
-    return serveIcon(size, await getSite(env, id));
-  }
   const site = await getSite(env, id);
   if (!site) return new Response("Not found", { status: 404 });
-  if (sub === "/manifest.webmanifest") return manifest(site);
-
-  // HTML-serving: "/" or any unknown subpath (SPA fallback). Every app requires sign-in so each
-  // visitor gets their OWN private data namespace: private => owner only; public => any signed-in user.
-  if (request.method === "GET") {
-    const u = await getSessionUser(request, env);
-    const canOpen = canOpenApp(site.visibility, u ? u.id : null, site.owner);
-    if (!canOpen) {
-      const loginUrl = `${accountOrigin(env)}/auth/login?next=${encodeURIComponent(appUrl(env, id))}`;
-      return new Response(renderAppGate(loginUrl, { isPublic: site.visibility === "public", signedIn: !!u }), {
-        headers: { "content-type": "text/html;charset=utf-8", "x-robots-tag": "noindex" },
-      });
-    }
-    return serveApp(site, await mintAppToken(env, id, u!.id));
+  if (sub === "/icon-192.png" || sub === "/icon-512.png" || sub === "/apple-touch-icon.png") {
+    const size = sub === "/icon-512.png" ? 512 : sub === "/apple-touch-icon.png" ? 180 : 192;
+    return serveIcon(size, site);
   }
-  return new Response("Not found", { status: 404 });
+  if (sub === "/manifest.webmanifest") return manifest(site);
+  if (request.method !== "GET") return new Response("Not found", { status: 404 });
+
+  // EVERY file (entry, asset, or SPA fallback) requires sign-in — so a private app's JS/CSS never
+  // leaks to a non-owner. private => owner only; public => any signed-in user (own data namespace).
+  const u = await getSessionUser(request, env);
+  if (!canOpenApp(site.visibility, u ? u.id : null, site.owner)) {
+    const loginUrl = `${accountOrigin(env)}/auth/login?next=${encodeURIComponent(appUrl(env, id))}`;
+    return new Response(renderAppGate(loginUrl, { isPublic: site.visibility === "public", signedIn: !!u }), {
+      headers: { "content-type": "text/html;charset=utf-8", "x-robots-tag": "noindex" },
+    });
+  }
+  const files = siteFiles(site);
+  const key = requestToFileKey(sub);
+  if (key === null) return new Response("Not found", { status: 404 }); // unsafe path (traversal etc.)
+  if (key !== ENTRY && files[key] !== undefined) {
+    // a concrete asset (app.js, styles.css, …): serve raw, correct content-type, no head injection
+    return new Response(files[key], { headers: { "content-type": contentTypeFor(key), "cache-control": "no-cache", "x-robots-tag": "noindex" } });
+  }
+  // entry, or any unknown path -> index.html (SPA fallback) WITH head injection + a scoped token
+  const token = await mintAppToken(env, id, u!.id);
+  return serveApp(files[ENTRY] || "", { name: site.name, theme_color: site.theme_color, token, base: appBase(env, id) });
 }
 
 // ---------- main app router (account host; the OAuth provider owns the MCP API) ----------
