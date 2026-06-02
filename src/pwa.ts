@@ -162,7 +162,8 @@ const SDK_JS = `(function(){
     schedule:function(m){return api('POST','reminders',{body:withTz(m)})},
     every:function(m){return api('POST','reminders',{body:withTz(m)})},
     list:function(){return api('GET','reminders').then(function(r){return r.items})},
-    cancel:function(id){return api('DELETE','reminders/'+encodeURIComponent(id))}
+    cancel:function(id){return api('DELETE','reminders/'+encodeURIComponent(id))},
+    cancelByTag:function(tag){return api('DELETE','reminders',{query:{tag:tag}})}
   };
   // Attach the device's UTC offset so dailyAt fires at the user's LOCAL time (server converts it).
   function withTz(m){m=m||{};if(m.tzOffset===undefined)m.tzOffset=new Date().getTimezoneOffset();return m}

@@ -67,6 +67,11 @@ export class AppBackend extends Agent<Env> {
       if (path === "reminders" && method === "GET") {
         return { status: 200, json: { items: await this.listReminders(ns) } };
       }
+      if (path === "reminders" && method === "DELETE") {
+        const tag = query.tag || "";
+        if (!tag) return { status: 400, json: { error: "tag required" } };
+        return { status: 200, json: { cancelled: await this.cancelByTag(ns, tag) } };
+      }
       if (path.startsWith("reminders/") && method === "DELETE") {
         await this.cancelSchedule(decodeURIComponent(path.slice("reminders/".length)));
         return { status: 200, json: { ok: true } };
@@ -120,8 +125,10 @@ export class AppBackend extends Agent<Env> {
   }
 
   private async scheduleReminder(ns: string, b: any): Promise<string> {
+    const tag = b.tag ? String(b.tag).slice(0, 80) : undefined;
+    if (tag) await this.cancelByTag(ns, tag); // upsert: a tagged reminder replaces an existing same-tag one
     if ((await this.listSchedules()).length >= MAX_REMINDERS) throw new Error("Reminder limit reached (50). Cancel some first.");
-    const payload = { ns, title: String(b.title || "Reminder"), body: String(b.body || ""), url: b.url ? String(b.url) : "./" };
+    const payload = { ns, tag, title: String(b.title || "Reminder"), body: String(b.body || ""), url: b.url ? String(b.url) : "./" };
     if (b.everyMinutes) {
       const sec = Math.max(60, Math.round(Number(b.everyMinutes) * 60));
       return (await this.scheduleEvery(sec, "fireReminder" as keyof this, payload)).id;
@@ -139,11 +146,24 @@ export class AppBackend extends Agent<Env> {
     throw new Error("reminder needs one of: at, everyMinutes, dailyAt");
   }
 
+  // Cancel every reminder in this ns carrying the given tag. Returns how many were removed.
+  private async cancelByTag(ns: string, tag: string): Promise<number> {
+    const all = (await this.listSchedules()) as any[];
+    let n = 0;
+    for (const s of all) {
+      if (s.payload?.ns === ns && s.payload?.tag === tag) {
+        await this.cancelSchedule(s.id);
+        n++;
+      }
+    }
+    return n;
+  }
+
   private async listReminders(ns: string) {
     const all = await this.listSchedules();
     return all
       .filter((s: any) => s.payload && s.payload.ns === ns)
-      .map((s: any) => ({ id: s.id, title: s.payload.title, body: s.payload.body, type: s.type, time: s.time ?? null, cron: s.cron ?? null }));
+      .map((s: any) => ({ id: s.id, tag: s.payload.tag ?? null, title: s.payload.title, body: s.payload.body, type: s.type, time: s.time ?? null, cron: s.cron ?? null }));
   }
 
   // Alarm callback (must be public so this.schedule can invoke it by name).
