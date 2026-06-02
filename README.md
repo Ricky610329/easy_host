@@ -1,5 +1,7 @@
 # easy_host
 
+*The codebase behind **ship it** 🚀 — [ship-it-app.com](https://ship-it-app.com).*
+
 **Ask an AI to build you an app — and get a real, installable phone app with a backend.**
 
 easy_host is a single [Cloudflare Worker](https://workers.cloudflare.com/) that turns any AI-generated HTML page into an installable [PWA](https://web.dev/learn/pwa) with **persistent storage** and **real push notifications** (including scheduled and recurring reminders that fire even when the app is closed). No app store, no native build, no separate backend to wire up.
@@ -22,14 +24,18 @@ There's also a plain web form at `/` as a universal fallback for any AI that can
 
 ```js
 await easyhost.ready
-easyhost.data.get(key) / .set(key, value) / .delete(key) / .list(prefix?)   // persistent JSON store
-easyhost.notify.installed            // is the PWA installed to the home screen?
-easyhost.notify.permission           // 'default' | 'granted' | 'denied'
-easyhost.notify.enable()             // request permission + subscribe (CALL FROM A CLICK)
-easyhost.notify.sendNow({title, body})              // immediate
-easyhost.notify.schedule({title, body, at})         // one-off (at = epoch ms / ISO)
-easyhost.notify.every({title, body, everyMinutes})  // recurring; or { dailyAt: '08:30' }
-easyhost.notify.list() / .cancel(id)
+// persistent cloud store (per signed-in user, survives reinstall):
+easyhost.data.get(key) / .set(key, value) / .delete(key)
+easyhost.data.list(prefix, { keysOnly, limit, reverse }) / .count(prefix)
+// Web Push (scheduled/recurring reminders fire server-side, even when the app is closed):
+easyhost.notify.installed / .permission                        // install state / 'default'|'granted'|'denied'
+easyhost.notify.enable()                                       // request permission + subscribe (CALL FROM A CLICK)
+easyhost.notify.sendNow({title, body, icon?, image?})          // immediate; per-notification icon/image
+easyhost.notify.schedule({title, body, at})                    // one-off (at = epoch ms / ISO)
+easyhost.notify.every({title, body, everyMinutes})             // recurring; or { dailyAt: '08:30' } (user's LOCAL time)
+easyhost.notify.every({bodies:[...], everyMinutes, tag})       // rotate content; `tag` upserts (no duplicate reminders)
+easyhost.notify.list() / .cancel(id) / .cancelByTag(tag)
+easyhost.notify.onClick((url) => { /* deep-link on notification tap */ })
 ```
 
 > **iOS push requires the PWA be installed** (Add to Home Screen, opened from the icon, iOS 16.4+). It does not work in a Safari tab, and `enable()` must be triggered by a user gesture. The build guide tells the AI to handle this.
@@ -95,27 +101,33 @@ openssl rand -base64 32   | npx wrangler secret put CAP_SECRET      # per-app ca
 
 | Route | Purpose |
 | --- | --- |
-| `GET /` | Manual upload form. |
-| `POST /api/create` | `{ html, name?, theme_color? }` → `{ id, url }`. |
-| `GET /s/:id/` | The hosted app, PWA tags injected. (`/s/:id` 301-redirects here.) |
-| `GET /s/:id/{manifest.webmanifest, sw.js, sdk.js, icon-*.png}` | App assets (generated/injected). |
-| `… /s/:id/api/{config, data, data/list, subscribe, unsubscribe, notify, reminders}` | The per-app backend the SDK talks to (authorized by a per-app capability token). |
+| `GET /`, `GET /how` | Manual upload form + "how it works" walkthrough. |
+| `POST /api/create` | `{ html, name?, theme_color? }` → `{ id, url }` (form path, single-file). |
+| app serving | Custom domain → `https://<id>.<domain>/` (own origin); `/s/:id/` 301-redirects there. On `*.workers.dev`/`localhost` → served at `/s/:id/`. Unknown paths fall back to `index.html` (SPA). |
+| `…/{manifest.webmanifest, sw.js, sdk.js, icon-*.png}` + any app file | Injected app assets + the app's own files (multi-file). Sign-in-gated for private apps. |
+| `…/api/{config, data, data/list, data/count, subscribe, unsubscribe, notify, reminders}` | Per-app backend the SDK talks to (per-`(user,app)` capability token). |
 | `GET /dashboard`, `GET/POST/DELETE /api/apps…` | Owner console (session-gated): list apps, set visibility, delete. |
 | `/auth/{login,callback,logout}`, `/authorize`, `/token`, `/register` | Google web session + the MCP OAuth provider. |
 | `POST /mcp` | MCP (OAuth-protected): `publish_app`, `update_app`, `get_build_guide` (+ `easyhost://guide` resource). |
+| `POST /admin/{block,unblock,close,open}` | Operator (Bearer `ADMIN_TOKEN`): take down an app / kill-switch the whole site. |
+| `/robots.txt`, `/sitemap.xml`, `/favicon.ico` | SEO + brand (marketing pages indexable; app subdomains are `noindex`). |
 
 ## Security & limitations
 
-- **Accounts gate publishing.** Both the web form and the MCP connector require Google sign-in; published apps are owned by that account. App visibility is `unlisted` (default, link-only), `private` (owner-only), or `public`.
-- **Shared-origin isolation via capability tokens.** All apps share one origin, so `/s/:id/api/*` is authorized by a per-`(user, app)` token (not an ambient cookie) — a malicious app can't read another app's data. Per-app subdomain isolation is a planned hardening.
-- **Notifications are per-app.** A Web Push subscription is bound to each app's service-worker scope, so enabling notifications is per-app (one account does not yet share one subscription across all its apps).
-- **Single self-contained HTML only.** CSS/JS inline; no external CDNs (offline is a feature). Multi-file sites would need R2.
-- **Hosted-demo kill-switch.** A public instance can be time-boxed or usage-capped via env vars (`SERVICE_OPEN`, `SERVICE_OPEN_UNTIL`, `MAX_APPS`) and a per-IP rate limit, so it can be left running safely and shut itself off. Unset on a self-hosted instance → unrestricted.
+- **Sign-in is required to open ANY app** (not just to publish), so each visitor gets their own private data namespace. Visibility is `private` (default — owner only) or `public` (any signed-in user). Published apps are owned by the signing-in account.
+- **Per-app subdomain isolation.** Each app is served from its own origin `<id>.<domain>` (account/auth/MCP stay on the apex). `/s/:id/api/*` is also authorized by a per-`(user, app)` capability token, and every file of a private app is sign-in-gated so its JS/CSS can't leak. (Self-hosting on `*.workers.dev`/`localhost` falls back to same-origin `/s/:id/` path mode.)
+- **Notifications are per-app.** A Web Push subscription is bound to each app's service-worker scope. Notifications reach only the signed-in user's own devices — there is no user-to-user delivery (by design, we don't hold/relay user data).
+- **Apps can be one HTML file or several text files.** `publish_app` takes `html` (single-file) or a `files` list (multi-file: index.html entry + js/css/nested modules, SPA routing). Text files only; images via URL/CDN/data: URI. The network is available (external APIs, iframes, CDNs).
+- **Cost controls.** Stay on the Workers Free plan for a hard $0 ceiling. A friendly site-wide "oops" page + an instant operator kill (`POST /admin/close|/admin/open`), an optional usage **auto-shutoff** cron (`DAILY_REQUEST_BUDGET` + `CF_API_TOKEN`/`CF_ACCOUNT_ID` read Cloudflare analytics and close the site for the day if exceeded), the publishing kill-switch (`SERVICE_OPEN`/`SERVICE_OPEN_UNTIL`/`MAX_APPS`), and per-IP rate limits. All opt-in — unset on a self-hosted instance → unrestricted.
 
 ## Roadmap
 
-- Unified notifications (one subscription across a user's apps, via a shared root service worker).
-- AI inside apps (provider-agnostic), opt-in messaging channels (Telegram/Discord), realtime / multi-user, per-app subdomain isolation, multi-file apps (R2).
+- Notification action buttons (one-tap "Message"/"Snooze"), round-robin rotation, image-icon upload, quiet hours.
+- Publish-time preview / runtime-error detection (needs browser rendering).
+- Binary assets via R2 (today: text files + URL/CDN/data: URIs).
+
+Out of scope by design: holding/relaying user data (no server-side messaging/inbox). Per-app subdomain
+isolation, multi-file apps, unified per-user data, and the cost auto-shutoff are **done**.
 
 ## License
 
