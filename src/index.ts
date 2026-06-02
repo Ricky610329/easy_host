@@ -9,6 +9,7 @@ import {
   accountOrigin,
   appHostId,
   appUrl,
+  canOpenApp,
   getSite,
   indexAddApp,
   indexRemoveApp,
@@ -16,6 +17,7 @@ import {
   isServiceHardClosed,
   listOwnerApps,
   rateLimited,
+  releaseAppSlot,
   reserveAppSlot,
   serviceClosedReason,
   setBlocked,
@@ -127,6 +129,7 @@ async function handleAppsApi(request: Request, env: Env, sub: string): Promise<R
     if (!site || site.owner !== user.id) return json({ error: "not found" }, 404);
     await env.SITES.delete(mDel[1]);
     await indexRemoveApp(env, user.id, mDel[1]);
+    await releaseAppSlot(env);
     return json({ ok: true });
   }
   return json({ error: "not found" }, 404);
@@ -179,7 +182,7 @@ async function serveAppHost(request: Request, env: Env, id: string, sub: string,
   // visitor gets their OWN private data namespace: private => owner only; public => any signed-in user.
   if (request.method === "GET") {
     const u = await getSessionUser(request, env);
-    const canOpen = site.visibility === "public" ? !!u : !!u && u.id === site.owner;
+    const canOpen = canOpenApp(site.visibility, u ? u.id : null, site.owner);
     if (!canOpen) {
       const loginUrl = `${accountOrigin(env)}/auth/login?next=${encodeURIComponent(appUrl(env, id))}`;
       return new Response(renderAppGate(loginUrl, { isPublic: site.visibility === "public", signedIn: !!u }), {
@@ -216,6 +219,9 @@ const appRouter: ExportedHandler<Env> = {
     if (path === "/favicon.svg") {
       return new Response(FAVICON_SVG, { headers: { "content-type": "image/svg+xml; charset=utf-8", "cache-control": "public, max-age=86400" } });
     }
+    // Raster favicon (rocket PNG) for clients that fetch /favicon.ico and can't render the emoji SVG
+    // — e.g. the Claude connector card, which otherwise falls back to a generic globe.
+    if (path === "/favicon.ico") return serveSiteIcon(48);
     // SEO: only the marketing site is crawlable; app subdomains serve their own Disallow robots.txt.
     if (path === "/robots.txt") {
       const body = `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /auth/\nDisallow: /authorize\nDisallow: /dashboard\nSitemap: ${accountOrigin(env)}/sitemap.xml\n`;

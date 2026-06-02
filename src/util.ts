@@ -35,6 +35,14 @@ export async function hmac(secret: string, data: string): Promise<string> {
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
   return b64url(new Uint8Array(sig));
 }
+// Constant-time string compare (avoids leaking how many leading chars of an HMAC matched).
+export function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false; // HMACs are fixed-length, so length isn't secret
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 // payload.signature, where payload = base64url(JSON). exp (unix seconds) is enforced if present.
 export async function signToken(secret: string, obj: Record<string, unknown>): Promise<string> {
   const p = b64urlStr(JSON.stringify(obj));
@@ -45,7 +53,7 @@ export async function verifyToken<T>(secret: string, token: string | null): Prom
   const i = token.lastIndexOf(".");
   if (i < 0) return null;
   const p = token.slice(0, i);
-  if ((await hmac(secret, p)) !== token.slice(i + 1)) return null;
+  if (!timingSafeEqual(await hmac(secret, p), token.slice(i + 1))) return null;
   try {
     const obj = JSON.parse(b64urlToStr(p)) as T & { exp?: number };
     if (obj.exp && obj.exp < Math.floor(Date.now() / 1000)) return null;
@@ -53,6 +61,16 @@ export async function verifyToken<T>(secret: string, token: string | null): Prom
   } catch {
     return null;
   }
+}
+
+// dailyAt ('HH:MM', the user's LOCAL time) + tzOffset (JS getTimezoneOffset, minutes) -> a UTC
+// daily cron string. Fixed offset, so it can drift 1h across daylight-saving changes.
+export function dailyAtToCron(dailyAt: string, tzOffset: number): string {
+  const [h, m] = String(dailyAt).split(":");
+  const off = Number.isFinite(tzOffset) ? Math.trunc(tzOffset) : 0;
+  let total = (Number(h) || 0) * 60 + (Number(m) || 0) + off; // local -> UTC minutes
+  total = ((total % 1440) + 1440) % 1440;
+  return `${total % 60} ${Math.floor(total / 60)} * * *`;
 }
 
 export function parseCookie(header: string | null, name: string): string | null {

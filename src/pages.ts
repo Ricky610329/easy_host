@@ -5,7 +5,7 @@ import { SITE_PWA_HEAD } from "./pwa";
 
 // Brand favicon for the easy_host site itself (the apps under /s/:id/ get their own generated icons).
 export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><text x="32" y="37" font-size="52" text-anchor="middle" dominant-baseline="central">🚀</text></svg>`;
-const FAVICON_LINK = `<link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">`;
+const FAVICON_LINK = `<link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml"><link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">`;
 
 // Shared minimal style: monospace, near-monochrome, generous whitespace. No chromatic accent.
 const BASE_CSS = `

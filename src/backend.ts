@@ -2,7 +2,7 @@
 import { Agent } from "agents";
 import { buildPushHTTPRequest } from "@pushforge/builder";
 import type { Env } from "./types";
-import { sha256hex } from "./util";
+import { dailyAtToCron, sha256hex } from "./util";
 
 export type ApiResult = { status: number; json: unknown };
 
@@ -127,13 +127,10 @@ export class AppBackend extends Agent<Env> {
       return (await this.scheduleEvery(sec, "fireReminder" as keyof this, payload)).id;
     }
     if (b.dailyAt) {
-      const [h, m] = String(b.dailyAt).split(":");
-      // dailyAt is the user's LOCAL time; the SDK sends tzOffset (= JS getTimezoneOffset, minutes) so
-      // we can target the right UTC cron. (Fixed offset => may drift 1h across daylight-saving changes.)
-      const off = Number.isFinite(Number(b.tzOffset)) ? Math.trunc(Number(b.tzOffset)) : 0;
-      let total = (Number(h) || 0) * 60 + (Number(m) || 0) + off; // local -> UTC minutes
-      total = ((total % 1440) + 1440) % 1440;
-      return (await this.schedule(`${total % 60} ${Math.floor(total / 60)} * * *`, "fireReminder" as keyof this, payload)).id;
+      // dailyAt is the user's LOCAL time; the SDK sends tzOffset (= JS getTimezoneOffset) so we can
+      // target the right UTC cron. (See dailyAtToCron — fixed offset, so ~1h DST drift.)
+      const cron = dailyAtToCron(String(b.dailyAt), Number(b.tzOffset));
+      return (await this.schedule(cron, "fireReminder" as keyof this, payload)).id;
     }
     if (b.at) {
       const when = typeof b.at === "number" ? new Date(b.at) : new Date(String(b.at));

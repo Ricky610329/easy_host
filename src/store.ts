@@ -48,13 +48,31 @@ export function cookieDomainAttr(env: Env): string {
   return subdomainMode(env) ? `; Domain=${apexHost(env)}` : "";
 }
 
+// Can this visitor open the app? Sign-in is ALWAYS required (so each gets a private data namespace):
+// private => owner only; public => any signed-in user.
+export function canOpenApp(visibility: string | undefined, userId: string | null, ownerId: string | undefined): boolean {
+  if (!userId) return false;
+  if (visibility === "public") return true;
+  return userId === ownerId;
+}
+
 // ---------- operator takedown (block an app id) ----------
+// isBlocked is hit on every app sub-request (html, sw, sdk, manifest, icons, api); cache it in isolate
+// memory ~60s so we don't KV-read 8x per app load. setBlocked keeps this isolate's cache coherent.
+const blockedCache = new Map<string, { at: number; v: boolean }>();
 export async function isBlocked(env: Env, id: string): Promise<boolean> {
-  return (await env.SITES.get(`blocked:${id}`)) !== null;
+  const now = Date.now();
+  const c = blockedCache.get(id);
+  if (c && now - c.at < 60_000) return c.v;
+  const v = (await env.SITES.get(`blocked:${id}`)) !== null;
+  if (blockedCache.size > 5000) blockedCache.clear();
+  blockedCache.set(id, { at: now, v });
+  return v;
 }
 export async function setBlocked(env: Env, id: string, on: boolean): Promise<void> {
   if (on) await env.SITES.put(`blocked:${id}`, "1");
   else await env.SITES.delete(`blocked:${id}`);
+  blockedCache.set(id, { at: Date.now(), v: on });
 }
 
 // ---------- hosted-demo gate (kill-switch + cap + rate limit) ----------
@@ -111,6 +129,12 @@ export async function reserveAppSlot(env: Env): Promise<boolean> {
   if (cur >= max) return false;
   await env.SITES.put(COUNT_KEY, String(cur + 1));
   return true;
+}
+// Free a slot when an app is deleted (so MAX_APPS counts live apps, not all-time creations).
+export async function releaseAppSlot(env: Env): Promise<void> {
+  if (!env.MAX_APPS) return;
+  const cur = parseInt((await env.SITES.get(COUNT_KEY)) || "0", 10);
+  if (cur > 0) await env.SITES.put(COUNT_KEY, String(cur - 1));
 }
 
 // Simple per-IP rolling rate limit (only used on the public web form).

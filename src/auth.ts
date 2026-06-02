@@ -12,9 +12,10 @@ function sessionCookie(env: Env, value: string, maxAge: number): string {
 export function clearSessionCookie(env: Env): string {
   return `eh_session=; HttpOnly; Secure; SameSite=Lax; Path=/${cookieDomainAttr(env)}; Max-Age=0`;
 }
-// Accept a path, or an https URL within our zone (apex or any <sub>.apex). Default /dashboard.
-function safeNext(env: Env, next: string | undefined): string {
-  if (next && next.startsWith("/")) return next;
+// Accept a same-origin path, or an https URL within our zone (apex or any <sub>.apex). Default
+// /dashboard. Reject protocol-relative paths ("//host", "/\host") that would redirect off-site.
+export function safeNext(env: Env, next: string | undefined): string {
+  if (next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\")) return next;
   if (next) {
     try {
       const u = new URL(next);
