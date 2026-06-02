@@ -66,11 +66,14 @@ export async function verifyToken<T>(secret: string, token: string | null): Prom
 // dailyAt ('HH:MM', the user's LOCAL time) + tzOffset (JS getTimezoneOffset, minutes) -> a UTC
 // daily cron string. Fixed offset, so it can drift 1h across daylight-saving changes.
 export function dailyAtToCron(dailyAt: string, tzOffset: number): string {
-  const [h, m] = String(dailyAt).split(":");
-  const off = Number.isFinite(tzOffset) ? Math.trunc(tzOffset) : 0;
-  let total = (Number(h) || 0) * 60 + (Number(m) || 0) + off; // local -> UTC minutes
-  total = ((total % 1440) + 1440) % 1440;
+  const total = ((hhmmToMin(dailyAt) + (Number.isFinite(tzOffset) ? Math.trunc(tzOffset) : 0)) % 1440 + 1440) % 1440;
   return `${total % 60} ${Math.floor(total / 60)} * * *`;
+}
+
+// 'HH:MM' -> minutes since local midnight (0..1439).
+export function hhmmToMin(s: string): number {
+  const [h, m] = String(s).split(":");
+  return ((Number(h) || 0) * 60 + (Number(m) || 0)) % 1440;
 }
 
 export function parseCookie(header: string | null, name: string): string | null {

@@ -9,6 +9,7 @@ import {
   signToken,
   verifyToken,
   dailyAtToCron,
+  hhmmToMin,
   escapeAttr,
   parseCookie,
   safeJson,
@@ -88,6 +89,14 @@ describe("dailyAtToCron (local HH:MM + tzOffset -> UTC cron)", () => {
   });
   it("treats a missing/NaN offset as UTC", () => {
     expect(dailyAtToCron("08:30", NaN)).toBe("30 8 * * *");
+  });
+});
+
+describe("hhmmToMin", () => {
+  it("converts HH:MM to minutes since midnight", () => {
+    expect(hhmmToMin("00:00")).toBe(0);
+    expect(hhmmToMin("08:30")).toBe(510);
+    expect(hhmmToMin("23:59")).toBe(1439);
   });
 });
 

@@ -100,16 +100,23 @@ self.addEventListener('fetch',function(e){
 self.addEventListener('push',function(e){
   var d={};
   try{d=e.data?e.data.json():{}}catch(_){d={body:e.data?e.data.text():''}}
-  e.waitUntil(self.registration.showNotification(d.title||'Reminder',{
-    body:d.body||'', data:{url:d.url||'./'}, icon:'icon-192.png', badge:'icon-192.png'
-  }));
+  var opts={body:d.body||'', data:{url:d.url||'./'}, icon:d.icon||'icon-192.png', badge:d.badge||'icon-192.png'};
+  if(d.image)opts.image=d.image;
+  e.waitUntil(self.registration.showNotification(d.title||'Reminder',opts));
 });
 self.addEventListener('notificationclick',function(e){
   e.notification.close();
-  var target=(e.notification.data&&e.notification.data.url)||'./';
-  e.waitUntil(self.clients.matchAll({type:'window'}).then(function(list){
-    for(var i=0;i<list.length;i++){if('focus' in list[i])return list[i].focus()}
-    if(self.clients.openWindow)return self.clients.openWindow(target);
+  var data=e.notification.data||{};
+  var target=data.url||'./';
+  e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(function(list){
+    for(var i=0;i<list.length;i++){
+      var c=list[i];
+      if('focus' in c){
+        try{c.postMessage({type:'notificationclick',url:target,data:data})}catch(_){} // let the app deep-link in place
+        return c.focus();
+      }
+    }
+    if(self.clients.openWindow)return self.clients.openWindow(target); // cold start: open the target url
   }));
 });`;
 
@@ -163,7 +170,8 @@ const SDK_JS = `(function(){
     every:function(m){return api('POST','reminders',{body:withTz(m)})},
     list:function(){return api('GET','reminders').then(function(r){return r.items})},
     cancel:function(id){return api('DELETE','reminders/'+encodeURIComponent(id))},
-    cancelByTag:function(tag){return api('DELETE','reminders',{query:{tag:tag}})}
+    cancelByTag:function(tag){return api('DELETE','reminders',{query:{tag:tag}})},
+    onClick:function(cb){if(navigator.serviceWorker)navigator.serviceWorker.addEventListener('message',function(e){if(e.data&&e.data.type==='notificationclick')cb(e.data.url,e.data.data)})}
   };
   // Attach the device's UTC offset so dailyAt fires at the user's LOCAL time (server converts it).
   function withTz(m){m=m||{};if(m.tzOffset===undefined)m.tzOffset=new Date().getTimezoneOffset();return m}

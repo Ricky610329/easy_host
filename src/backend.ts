@@ -128,7 +128,12 @@ export class AppBackend extends Agent<Env> {
     const tag = b.tag ? String(b.tag).slice(0, 80) : undefined;
     if (tag) await this.cancelByTag(ns, tag); // upsert: a tagged reminder replaces an existing same-tag one
     if ((await this.listSchedules()).length >= MAX_REMINDERS) throw new Error("Reminder limit reached (50). Cancel some first.");
-    const payload = { ns, tag, title: String(b.title || "Reminder"), body: String(b.body || ""), url: b.url ? String(b.url) : "./" };
+    const payload: any = { ns, tag, title: String(b.title || "Reminder"), body: String(b.body || ""), url: b.url ? String(b.url) : "./" };
+    if (b.icon) payload.icon = String(b.icon);
+    if (b.image) payload.image = String(b.image);
+    if (b.badge) payload.badge = String(b.badge);
+    // Rotation: a recurring reminder can carry several messages and fire a different one each time.
+    if (Array.isArray(b.bodies) && b.bodies.length) payload.bodies = b.bodies.slice(0, 50);
     if (b.everyMinutes) {
       const sec = Math.max(60, Math.round(Number(b.everyMinutes) * 60));
       return (await this.scheduleEvery(sec, "fireReminder" as keyof this, payload)).id;
@@ -167,9 +172,17 @@ export class AppBackend extends Agent<Env> {
   }
 
   // Alarm callback (must be public so this.schedule can invoke it by name).
-  async fireReminder(payload: { ns: string; title: string; body: string; url: string }) {
+  async fireReminder(payload: any) {
     this.ensure();
-    await this.sendToAll(payload.ns, payload);
+    const msg = { ...payload };
+    // If the reminder carries a rotation set, send a random one this time (variety without burning
+    // the 50-reminder cap on one-offs). Entries may be strings (body) or {title,body,icon,image,url}.
+    if (Array.isArray(payload.bodies) && payload.bodies.length) {
+      const pick = payload.bodies[Math.floor(Math.random() * payload.bodies.length)];
+      if (typeof pick === "string") msg.body = pick;
+      else if (pick && typeof pick === "object") Object.assign(msg, pick);
+    }
+    await this.sendToAll(payload.ns, msg);
   }
 
   private async sendToAll(ns: string, msg: any): Promise<number> {
@@ -181,11 +194,15 @@ export class AppBackend extends Agent<Env> {
 
   private async sendOne(s: { id: string; endpoint: string; p256dh: string; auth: string }, msg: any): Promise<boolean> {
     try {
+      const payload: any = { title: String(msg.title || "Reminder").slice(0, 120), body: String(msg.body || "").slice(0, 300), url: msg.url || "./" };
+      if (msg.icon) payload.icon = String(msg.icon); // per-notification icon (e.g. a friend's avatar)
+      if (msg.image) payload.image = String(msg.image); // large hero image
+      if (msg.badge) payload.badge = String(msg.badge);
       const req = await buildPushHTTPRequest({
         privateJWK: this.env.VAPID_PRIVATE_JWK,
         subscription: { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
         message: {
-          payload: { title: String(msg.title || "Reminder").slice(0, 120), body: String(msg.body || "").slice(0, 300), url: msg.url || "./" },
+          payload,
           adminContact: this.env.VAPID_SUBJECT || "mailto:admin@example.com",
           options: { ttl: PUSH_TTL, urgency: "high" },
         },
