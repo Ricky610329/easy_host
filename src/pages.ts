@@ -14,7 +14,7 @@ const BASE_CSS = `
   html,body{margin:0}
   body{font:14px/1.65 ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased;display:flex;justify-content:center;padding:0 20px}
   a{color:#9ecbff;text-decoration:none}a:hover{text-decoration:underline}
-  header.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:48px}
+  header.top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;margin-bottom:48px}
   .brand{font-weight:600;letter-spacing:.3px}
   header.top nav a{color:var(--mut);margin-left:18px;font-size:13px}
   header.top nav a:hover{color:var(--fg);text-decoration:none}
@@ -227,6 +227,7 @@ ${FAVICON_LINK}${SITE_PWA_HEAD}
 ${BASE_CSS}
   .wrap{width:100%;max-width:640px;padding:48px 0 80px}
   h1{font-size:18px;margin:0;font-weight:600}
+  .acct{color:var(--mut);font-size:12px;margin:4px 0 22px;word-break:break-all}
   .card{background:var(--field);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:10px}
   .card h3{margin:0 0 4px;font-size:15px;font-weight:600}
   .ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
@@ -234,7 +235,9 @@ ${BASE_CSS}
   button.del{border-color:#3a2326;color:#ff9aa8}
   .empty{color:var(--mut);padding:24px 0}
 </style></head><body><div class="wrap">
-<header class="top"><div class="brand">ship it 🚀 · your apps</div><nav><span class="mut" style="color:var(--mut);font-size:12px">${escapeAttr(user.email)}</span><a href="/">new</a><a href="/auth/logout">log out</a></nav></header>
+<header class="top"><div class="brand">ship it 🚀</div><nav><a href="/">new</a><a href="/auth/logout">log out</a></nav></header>
+<h1>Your apps</h1>
+<p class="acct">${escapeAttr(user.email)}</p>
 <div id="list"></div>
 <p class="mut" style="color:var(--mut);font-size:12px;margin-top:18px">Build apps by asking your AI (connector) or via the <a href="/">paste form</a>.</p>
 <script>
