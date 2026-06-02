@@ -31,6 +31,7 @@ const BUILD_GUIDE = [
   "- Design for standalone (no browser chrome): provide your own header / back navigation; never rely on the address bar.",
   "- Show an 'Add to Home Screen' hint ONLY when not installed: check easyhost.notify.installed (false = still in browser).",
   "- Set -webkit-tap-highlight-color, disable text selection on buttons, and use overscroll-behavior to avoid rubber-banding where appropriate.",
+  "- Accidental double-tap zoom and the tap delay are already disabled for you (touch-action: manipulation) — don't add user-scalable=no.",
   "",
   "## 4. Data (use easyhost.data, not just localStorage)",
   "- await easyhost.ready first. Then: await easyhost.data.set(key, value) / get(key) / delete(key).",

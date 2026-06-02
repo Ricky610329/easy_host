@@ -14,6 +14,8 @@ function injectBlock(name: string, theme: string, token: string): string {
     `<script>window.__EH_TOKEN__=${JSON.stringify(token)}</script>` +
     `<link rel="manifest" href="manifest.webmanifest">` +
     `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">` +
+    // Native feel: kill double-tap-to-zoom + tap delay (pinch-zoom still works); stop iOS text inflation.
+    `<style>html{touch-action:manipulation;-webkit-text-size-adjust:100%}</style>` +
     `<meta name="theme-color" content="${t}">` +
     `<meta name="mobile-web-app-capable" content="yes">` +
     `<meta name="apple-mobile-web-app-capable" content="yes">` +
