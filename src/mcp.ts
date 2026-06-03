@@ -9,75 +9,36 @@ import { ENTRY, mergeFiles, sanitizeFiles, siteFiles } from "./files";
 
 // ---------- the build guide handed to the AI (no backticks: this is a template literal) ----------
 const BUILD_GUIDE = [
-  "# easy_host — how to build a great app",
+  "# easy_host — build guide",
   "",
-  "You are generating ONE self-contained HTML page. easy_host hosts it, makes it an installable PWA,",
-  "and gives it a backend: persistent data (easyhost.data) and real push notifications (easyhost.notify),",
-  "including scheduled and recurring reminders that fire even when the app is closed. Build for a phone.",
+  "You generate a web app; easy_host hosts it as an installable phone PWA with a backend: persistent data (easyhost.data) and real push notifications that fire even when the app is closed (easyhost.notify). This is only what's platform-specific — you already know how to build good mobile web UI, so spend your effort there.",
   "",
-  "## 1. Files & constraints",
+  "## Files & hosting",
   "- Ship EITHER one self-contained <!doctype html> (publish_app `html`) — simplest, best for a small app — OR several text files (publish_app `files`: a list of { path, content }). Prefer multi-file when the app has multiple screens/modules or you'll iterate on it. No build step / bundler.",
   "- Multi-file: index.html is the ENTRY — head tags + the easyhost SDK are injected only into it (easyhost is a global, available in every module you import; await easyhost.ready in your entry). Reference siblings with relative URLs: <script type='module' src='app.js'>, <link href='styles.css'>, import './lib/x.js'. Nested folders are fine (screens/editor.js, import '../store.js'). Text files only (html/js/mjs/css/json/svg/txt; <=20 files, ~2MB); images via URL/CDN/data: URI.",
   "- Routing: an unknown path falls back to index.html (with injection) and a <base href> at the app root is injected — so BOTH hash (#/note/1) and History-API (/note/1) client-side routing work, and relative assets resolve from the root at any route depth.",
   "- Reserved filenames (do NOT name a file these): sw.js, sdk.js, manifest.webmanifest, robots.txt, icon-192.png, icon-512.png, apple-touch-icon.png, or anything under api/.",
   "- update_app MERGES files — to revise a multi-file app, send only the files that changed (cheaper, lower-risk); use removeFiles to delete one.",
   "- The network IS available — fetch external APIs, embed <iframe>s, load remote images, or pull a library from a CDN.",
-  "- Offline is optional. For a simple self-contained tool, inlining assets / data: URIs keeps it working offline — do that when it fits.",
   "",
-  "## 2. Already injected for you — do NOT add these",
-  "- Viewport meta, theme-color, web app manifest, apple-touch meta/icon, app icons, and the service worker (registered for you).",
-  "- The easyhost SDK (sdk.js) — window.easyhost is available. Do not write your own manifest, icons, or register a service worker.",
-  "- The home-screen icon is auto-generated as a lettermark (the app name's first letter on your theme_color). For a non-Latin name, pass `icon` (one A-Z/0-9 letter, e.g. 'W' for a water app) so the icon shows a clean monogram.",
+  "## Already injected — do NOT add",
+  "- viewport, theme-color, manifest, apple-touch meta/icon, app icons, the service worker, and the easyhost SDK (window.easyhost). The home-screen icon is an auto lettermark from the name; pass `icon` (one A-Z/0-9 char) for a non-Latin name.",
   "",
-  "## 3. Mobile / PWA UX (this is what makes it feel like a real app)",
-  "- Use 100dvh, not 100vh (mobile URL bar resizes the viewport).",
-  "- Respect safe areas: add padding using env(safe-area-inset-top) / -bottom / -left / -right; keep bottom bars above the home indicator.",
-  "- Touch targets at least 44x44 px; space controls for thumbs. No hover-only interactions — everything works on tap.",
-  "- Design for standalone (no browser chrome): provide your own header / back navigation; never rely on the address bar.",
-  "- Show an 'Add to Home Screen' hint ONLY when not installed: check easyhost.notify.installed (false = still in browser).",
-  "- Set -webkit-tap-highlight-color, disable text selection on buttons, and use overscroll-behavior to avoid rubber-banding where appropriate.",
-  "- Accidental double-tap zoom and the tap delay are already disabled for you (touch-action: manipulation) — don't add user-scalable=no.",
-  "- Performance (it runs on a mid-range phone): animate only transform/opacity; AVOID backdrop-filter(blur) and large or animated box-shadows/filters; no always-on or looping animations (glow/particles/shimmer); update the DOM in place, don't re-render the whole list on every change. Heavy decoration is the usual cause of jank.",
+  "## Principles (you know mobile UI; these are the easy-to-miss ones)",
+  "- Make it WORK first: the smallest thing that works end-to-end beats an ambitious half-broken one. Every control must do something; don't add unrequested subsystems (levels, upgrades, multi-step flows) — the user can ask via update_app. Guard risky parts so one bug can't blank the screen.",
+  "- Keep it light: it runs on a mid-range phone — animate transform/opacity only, no backdrop-blur / big or animated shadows / always-on animations, update the DOM in place. Heavy decoration is the usual jank. (Double-tap zoom is already disabled — don't set user-scalable=no.)",
+  "- Have a point of view: intentional and specific to its purpose, not a generic template.",
   "",
-  "## 4. Data (use easyhost.data, not just localStorage)",
-  "- await easyhost.ready first. Then: await easyhost.data.set(key, value) / get(key) / delete(key).",
-  "- List/scan: easyhost.data.list(prefix, { keysOnly, limit, reverse }) -> [{key, value}] sorted by key ASCENDING. Pass { reverse:true } for newest-first, { limit:N } to cap, { keysOnly:true } to page keys without downloading every value. easyhost.data.count(prefix) returns how many keys match.",
-  "- Values are any JSON. Keys are strings. easyhost.data survives reinstall; localStorage does not — use localStorage only as an offline cache.",
-  "- LIMITS — design around these: each value max ~64KB; max 1000 keys per app. set() REJECTS (throws) if a value is too big or you hit the key cap, so always `await` your writes (and catch if it matters).",
-  "- Model multi-record data as one key PER record, not one giant array: e.g. a journal/tracker stores `entry:2026-06-02` per day and reads list('entry:'); one ever-growing array will blow the 64KB limit. Use sortable keys (ISO dates, zero-padded numbers) so list()/reverse gives the order you want. For records with no natural key, mint a sortable unique id: const id = Date.now().toString(36) + Math.random().toString(36).slice(2,6) -> key `note:${id}`.",
-  "- Pattern: render immediately, load from easyhost.data after ready, write through (await) on every change.",
+  "## Data — easyhost.data (cloud; survives reinstall; prefer over localStorage)",
+  "- await easyhost.ready, then set(k,v) / get(k) / delete(k); list(prefix, { keysOnly, limit, reverse }) -> [{ key, value }] (key-ascending; reverse = newest-first); count(prefix). JSON values, string keys.",
+  "- Limits: ~64KB per value, 1000 keys/app; set() THROWS past either, so await writes. Store one key PER record (`entry:2026-06-02`, or a sortable id `${Date.now().toString(36)}${Math.random().toString(36).slice(2,6)}`) — never one growing array.",
   "",
-  "## 5. Notifications (the headline feature)",
-  "- Gate behind a user gesture: call easyhost.notify.enable() ONLY inside a click handler, after briefly explaining why.",
-  "- enable() requests permission and subscribes. Check easyhost.notify.permission ('default'|'granted'|'denied') and handle 'denied' gracefully. Call sendNow()/schedule()/every() only AFTER enable() resolves successfully — with no subscription, nothing is delivered.",
-  "- iOS REQUIREMENT: on iPhone/iPad push only works after the app is installed to the Home Screen and opened from the icon (iOS 16.4+) — NOT in a Safari tab. So on iOS, if easyhost.notify.installed === false, hide Enable and show 'Add to Home Screen, then open from the icon to turn on reminders.' On Android/desktop enable() works in the browser too — don't hide it there just because installed is false.",
-  "- Kinds of notification:",
-  "  - Immediate test:   easyhost.notify.sendNow({ title, body })",
-  "  - One-off at a time: easyhost.notify.schedule({ title, body, at })          // at = epoch ms (compute with Date in the browser) or an ISO string WITH a timezone",
-  "  - Recurring:         easyhost.notify.every({ title, body, everyMinutes })   // e.g. every 120 minutes",
-  "  -                    easyhost.notify.every({ title, body, dailyAt: '08:30' }) // every day at the USER'S LOCAL time — the SDK sends the timezone for you, no conversion needed (may shift 1h across daylight-saving changes)",
-  "- Per-notification look: any of the above also accept `icon` (small image URL, e.g. a sender's avatar), `image` (large hero image URL), and `badge`. So different notifications can show different pictures — e.g. sendNow({ title:'Mia', body:'hi!', icon:'https://.../mia.png' }). Use URLs (data: URIs count against a ~4KB push-payload limit).",
-  "- Rotating content: every({ everyMinutes:120, bodies:[...] }) sends a RANDOM entry from `bodies` each time — entries are strings (body text) or objects { title, body, icon, image, url }. Use this for variety instead of scheduling many one-offs (which burns the 50-reminder cap).",
-  "- Server-side: scheduled / recurring reminders fire on our servers (even when the app is fully closed) — you do NOT keep the app open or run your own timers.",
-  "- Deep-linking: set `url` on a notification (use a HASH route, e.g. url:'#/chat/42', so a cold open lands correctly). Encode any state you need in that url. On tap, a closed app opens at the url; an already-open app receives it via easyhost.notify.onClick((url) => { /* route in-app */ }) — register that once at startup.",
-  "  - Return shapes: schedule()/every() resolve to { id }. list() resolves to rows { id, tag, title, body, url, icon, image, type, time, cron } (plus `bodies` for a rotation) — enough to rebuild your UI. time = epoch ms for a one-off; a daily/recurring schedule lives in `cron`. Cancel one with easyhost.notify.cancel(id).",
-  "  - Idempotent reminders (recommended): pass a stable `tag` to schedule()/every() (e.g. every({ dailyAt:'09:00', tag:'water-daily', ... })) and it REPLACES any existing reminder with that tag instead of stacking duplicates. Turn it off with easyhost.notify.cancelByTag(tag). Use this instead of list-then-cancel.",
-  "- LIMITS: up to 50 scheduled/recurring reminders per app; immediate sendNow capped at ~30/min. For a big list of items, don't schedule one reminder each — send a single daily summary instead.",
-  "- Keep title+body short (a notification, not an essay).",
+  "## Notifications — easyhost.notify",
+  "- enable() ONLY inside a click (asks permission + subscribes); check .permission, handle 'denied'. Call sendNow/schedule/every only AFTER enable() succeeds. iOS: push works only once the app is installed to the Home Screen and opened from its icon — if .installed is false on iOS, hide Enable and tell them to install first (Android/desktop work in-browser).",
+  "- sendNow({title,body}) · schedule({title,body,at}) (at = epoch ms or ISO-with-tz) · every({title,body,everyMinutes}) · every({...,dailyAt:'08:30'}) — dailyAt is the user's LOCAL time (SDK handles the zone). All fire server-side even when the app is closed.",
+  "- Any notification also takes icon/image/badge (URLs). every({bodies:[...]}) fires a random entry each time. Pass a stable `tag` to REPLACE rather than stack (cancelByTag(tag) removes it). Deep-link: url:'#/path' + easyhost.notify.onClick((url)=>…). list() -> {id,tag,title,body,url,icon,image,type,time,cron}; cancel(id). Limits: 50 reminders, ~30 sendNow/min.",
   "",
-  "## 6. Design quality",
-  "- Design with taste and restraint: make it feel intentional and specific to its purpose, not a generic template. Commit to one clear idea and keep everything else quiet. Aim for something you'd be proud to ship.",
-  "- Scope = make it WORK first. Build the smallest version that works end-to-end before any flourish; every control you render must actually do something. A simple app that works beats an ambitious one that half-loads or has dead buttons — don't bolt on elaborate subsystems (levels, upgrades, multi-step flows) unless asked; the user can request more with update_app. Wrap optional/risky features in try/catch so one bug can't blank the whole screen.",
-  "- One restrained accent color + neutrals; consistent 4/8px spacing rhythm; clear hierarchy.",
-  "- Use the system font stack (system-ui, -apple-system, Segoe UI, Roboto, sans-serif) so it feels native and needs no download.",
-  "- Support dark mode via prefers-color-scheme and set a matching theme color. Respect prefers-reduced-motion.",
-  "",
-  "## 7. Before you publish — checklist",
-  "- One self-contained HTML document, or a `files` map with index.html (external APIs/iframes/CDNs are fine if the app needs them)?",
-  "- Uses easyhost.data for anything worth keeping?",
-  "- Notifications behind a button + an install check, with iOS guidance?",
-  "- 100dvh + safe-area padding + 44px touch targets?",
-  "- Then call publish_app. To revise later, call update_app with the SAME id (keeps the user's data, reminders, and home-screen icon).",
+  "To revise an app, call update_app with the SAME id (keeps its data, reminders, and icon).",
 ].join("\n");
 
 // Cheap heuristics surfaced back to the AI so it can self-correct via update_app.
@@ -98,13 +59,12 @@ export class EasyHostMCP extends McpAgent<Env> {
     { name: "easy_host", version: "0.2.0" },
     {
       instructions:
-        "easy_host hosts web apps so the user can install them on their phone, with a backend for persistent " +
-        "data and real push notifications (including scheduled/recurring reminders). " +
-        "BEFORE generating any app, call get_build_guide once and follow it. Apps get auto-injected PWA tags plus a " +
-        "global `easyhost` SDK (easyhost.data for storage, easyhost.notify for notifications) — use them; do not add your own " +
-        "manifest/service worker. Generate the app — a single self-contained HTML document, or several files (publish_app `files`) for a multi-screen app — and call publish_app; it returns an id. " +
-        "To revise an existing app, call update_app with that id (this preserves the user's saved data, reminders, and home-screen icon) " +
-        "— do NOT call publish_app again for edits. Then give the user the URL and tell them to Add to Home Screen.",
+        "easy_host turns a web app you generate into an installable phone PWA with a backend: persistent storage (easyhost.data) " +
+        "and real push notifications, including ones that fire when the app is closed (easyhost.notify). " +
+        "Call get_build_guide once before building, and follow it. The PWA tags, icons, service worker, and the `easyhost` SDK are " +
+        "injected for you — don't add your own. Generate the app (one self-contained HTML doc, or several files via `files` for a " +
+        "multi-screen app) and call publish_app; it returns a URL. To revise, call update_app with the same id (preserves data, " +
+        "reminders, and icon) — never publish_app again for edits. Then give the user the URL and tell them to Add to Home Screen.",
     }
   );
 
@@ -115,32 +75,28 @@ export class EasyHostMCP extends McpAgent<Env> {
 
     this.server.tool(
       "get_build_guide",
-      "Return easy_host's app-building guide: platform constraints, the easyhost.data / easyhost.notify SDK, mobile PWA best practices, and design guidance. Call this BEFORE generating an app.",
+      "easy_host's build guide: the platform specifics, the easyhost.data / easyhost.notify SDK, and a few principles. Read it BEFORE generating an app.",
       {},
       async () => ({ content: [{ type: "text", text: BUILD_GUIDE }] })
     );
 
     this.server.tool(
       "publish_app",
-      "Publish a NEW web app so the user can open it on their phone and install it as an app (PWA), with data + notifications. " +
-        "Provide a single `html` document, OR a `files` map for a multi-file app. Call get_build_guide first. " +
-        "Returns an id and URL. Use update_app (not publish_app) to revise an existing app.",
+      "Publish a NEW installable phone app (PWA) with storage + notifications. Provide a single `html` document OR a `files` list (multi-file). " +
+        "Call get_build_guide first. Returns an id + URL. To revise an existing app use update_app, not publish_app.",
       {
         html: z
           .string()
           .optional()
           .describe(
-            "Single-file app: the COMPLETE HTML document (your CSS/JS inline). The app may use the network freely " +
-              "(external APIs, iframes, CDNs, remote images). A viewport, manifest, service worker, icons, and the `easyhost` " +
-              "SDK are injected — do not add them. Provide this OR `files`."
+            "Single-file app: the complete HTML document (CSS/JS inline; the network is available). viewport/manifest/service-worker/icons/the `easyhost` SDK are injected — don't add them. Provide this OR `files`."
           ),
         files: z
           .array(z.object({ path: z.string(), content: z.string() }))
           .optional()
           .describe(
-            "Multi-file app: a list of files, e.g. [{ path: 'index.html', content: '...' }, { path: 'app.js', content: '...' }, { path: 'styles.css', content: '...' }]. " +
-              "MUST include index.html (the entry; head tags + SDK are injected into it). Reference siblings with normal relative URLs " +
-              "(<script src=\"app.js\">, import './x.js'). Text files only (html/js/mjs/css/json/svg/txt); images via URL/CDN/data-URI. Provide this OR `html`."
+            "Multi-file app: a list like [{ path:'index.html', content:'...' }, { path:'app.js', content:'...' }]. MUST include index.html (the entry — head tags + SDK are injected there). " +
+              "Reference siblings with relative URLs / ESM imports. Text files only (html/js/mjs/css/json/svg/txt); images via URL/CDN/data-URI. Provide this OR `html`."
           ),
         name: z.string().optional().describe("Short app name on the home screen (e.g. 'Water Reminder'). Under ~30 chars."),
         theme_color: z.string().optional().describe("Theme color hex, e.g. '#4f46e5'."),
@@ -168,9 +124,8 @@ export class EasyHostMCP extends McpAgent<Env> {
             {
               type: "text",
               text:
-                `Published${n > 1 ? ` (${n} files)` : ""}. id: ${id}\nInstallable app URL: ${url}\n\n` +
-                `This app is PRIVATE by default — only the signed-in owner can open it. The user should open it while signed in (same Google account), then Add to Home Screen (iOS Safari) / Install (Android Chrome). To share it, set it to Public in the dashboard — anyone who opens it then signs in and gets their own private copy of the data.\n` +
-                `To revise this app later, call update_app with id "${id}" — that keeps the user's data, reminders, and icon (and you can update just the changed files).` +
+                `Published${n > 1 ? ` (${n} files)` : ""} — id ${id}\n${url}\n\n` +
+                `Private by default (only the signed-in owner can open it). Tell the user to open it on their phone while signed in, then Add to Home Screen (iOS Safari) / Install (Android). Make it Public in the dashboard to share. Revise later with update_app id "${id}".` +
                 warnText(lint(Object.values(built.files!).join("\n"))),
             },
           ],
