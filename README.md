@@ -4,7 +4,7 @@
 
 **Ask an AI to build you an app — and get a real, installable phone app with a backend.**
 
-**Demo:** _(video coming)_ · **Live:** [ship-it-app.com](https://ship-it-app.com)
+**Demo:** [▶ 60-second demo](https://youtube.com/shorts/a6vMMzZqE9E) · **Live:** [ship-it-app.com](https://ship-it-app.com)
 
 easy_host is a single [Cloudflare Worker](https://workers.cloudflare.com/) that turns any AI-generated HTML page into an installable [PWA](https://web.dev/learn/pwa) with **persistent storage** and **real push notifications** (including scheduled and recurring reminders that fire even when the app is closed). No app store, no native build, no separate backend to wire up.
 
