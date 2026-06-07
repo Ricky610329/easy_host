@@ -135,6 +135,10 @@ isolation, multi-file apps, unified per-user data, and the cost auto-shutoff are
 
 [MIT](./LICENSE) © 2026 Ricky Tsou
 
+**⭐ If easy_host is useful to you, [star it on GitHub](https://github.com/Ricky610329/easy_host)** — it genuinely helps.
+
+[![GitHub stars](https://img.shields.io/github/stars/Ricky610329/easy_host?style=social)](https://github.com/Ricky610329/easy_host/stargazers)
+
 ---
 
 _Not affiliated with or endorsed by Anthropic. "Claude" is a trademark of Anthropic; easy_host simply connects to it as an MCP connector. Bring your own API keys and Cloudflare account._

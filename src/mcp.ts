@@ -101,10 +101,12 @@ export class EasyHostMCP extends McpAgent<Env> {
         name: z.string().optional().describe("Short app name on the home screen (e.g. 'Water Reminder'). Under ~30 chars."),
         theme_color: z.string().optional().describe("Theme color hex, e.g. '#4f46e5'."),
         icon: z.string().optional().describe("One letter or digit (A-Z / 0-9) for the home-screen icon monogram. Defaults to the app name's first letter; set this for non-Latin names (e.g. 'W' for a water app)."),
+        dryRun: z.boolean().optional().describe("Validate only — check the files and report sizes, don't actually publish."),
       },
-      async ({ html, files, name, theme_color, icon }) => {
+      async ({ html, files, name, theme_color, icon, dryRun }) => {
         const built = buildFiles(html, filesToMap(files));
         if (built.error) return { content: [{ type: "text", text: `Error: ${built.error}` }], isError: true };
+        if (dryRun) return { content: [{ type: "text", text: `Dry run OK — would publish ${Object.keys(built.files!).length} file(s). ${sizesLine(built.files!)}` }] };
         const owner = (this.props as { id?: string } | undefined)?.id;
         if (!owner) return { content: [{ type: "text", text: "Please sign in: reconnect this easy_host connector and authorize with Google." }], isError: true };
         const closed = serviceClosedReason(this.env);
@@ -125,7 +127,7 @@ export class EasyHostMCP extends McpAgent<Env> {
               type: "text",
               text:
                 `Published${n > 1 ? ` (${n} files)` : ""} — id ${id}\n${url}\n\n` +
-                `Private by default (only the signed-in owner can open it). Tell the user to open it on their phone while signed in, then Add to Home Screen (iOS Safari) / Install (Android). Make it Public in the dashboard to share. Revise later with update_app id "${id}".` +
+                `Private by default (only the signed-in owner can open it). Tell the user to open it on their phone while signed in, then Add to Home Screen (iOS Safari) / Install (Android). Make it Public in the dashboard to share. Revise later with update_app id "${id}".\n${sizesLine(built.files!)}` +
                 warnText(lint(Object.values(built.files!).join("\n"))),
             },
           ],
@@ -148,8 +150,9 @@ export class EasyHostMCP extends McpAgent<Env> {
         name: z.string().optional().describe("Optional new app name."),
         theme_color: z.string().optional().describe("Optional new theme color hex."),
         icon: z.string().optional().describe("Optional new icon monogram letter/digit."),
+        dryRun: z.boolean().optional().describe("Validate only — check the merged result and report, don't actually save."),
       },
-      async ({ id, html, files, removeFiles, name, theme_color, icon }) => {
+      async ({ id, html, files, removeFiles, name, theme_color, icon, dryRun }) => {
         const owner = (this.props as { id?: string } | undefined)?.id;
         if (!owner) return { content: [{ type: "text", text: "Please sign in: reconnect this easy_host connector and authorize with Google." }], isError: true };
         const closed = serviceClosedReason(this.env);
@@ -164,6 +167,7 @@ export class EasyHostMCP extends McpAgent<Env> {
         const merged = mergeFiles(siteFiles(existing), patch, removeFiles);
         const ok = sanitizeFiles(merged);
         if (ok.error) return { content: [{ type: "text", text: `Error: ${ok.error}` }], isError: true };
+        if (dryRun) return { content: [{ type: "text", text: `Dry run OK — would update to ${Object.keys(ok.files!).length} file(s). ${sizesLine(ok.files!)}` }] };
         const site: Site = {
           files: ok.files,
           name: name ?? existing.name,
@@ -181,11 +185,31 @@ export class EasyHostMCP extends McpAgent<Env> {
               type: "text",
               text:
                 `Updated app ${id} (${Object.keys(ok.files!).length} files). URL (unchanged): ${url}\n` +
-                `The user's saved data, reminders, and home-screen icon are preserved. They get the new version next time they open it.` +
+                `The user's saved data, reminders, and home-screen icon are preserved. They get the new version next time they open it.\n${sizesLine(ok.files!)}` +
                 warnText(lint(Object.values(ok.files!).join("\n"))),
             },
           ],
         };
+      }
+    );
+
+    this.server.tool(
+      "get_app",
+      "Read an app you own — its current files (path, size, content) so you can edit precisely or confirm what's deployed. Pass includeContent:false for just paths + sizes.",
+      {
+        id: z.string().describe("The app id."),
+        includeContent: z.boolean().optional().describe("Include each file's full text (default true)."),
+      },
+      async ({ id, includeContent }) => {
+        const owner = (this.props as { id?: string } | undefined)?.id;
+        if (!owner) return { content: [{ type: "text", text: "Please sign in: reconnect this easy_host connector and authorize with Google." }], isError: true };
+        const site = await getSite(this.env, id);
+        if (!site) return { content: [{ type: "text", text: `Error: no app with id "${id}".` }], isError: true };
+        if (site.owner && site.owner !== owner) return { content: [{ type: "text", text: "You don't own this app." }], isError: true };
+        const files = siteFiles(site);
+        const withContent = includeContent !== false;
+        const body = Object.entries(files).map(([p, c]) => `### ${p} (${c.length} bytes)` + (withContent ? `\n${c}` : "")).join("\n\n");
+        return { content: [{ type: "text", text: `App ${id} — ${appUrl(this.env, id)}\n${sizesLine(files)}\n\n${body}` }] };
       }
     );
   }
@@ -208,4 +232,11 @@ function buildFiles(html: string | undefined, files: Record<string, string> | un
     return { files: { [ENTRY]: html } };
   }
   return { error: "provide `html` (single file) or `files` (multi-file, must include index.html)." };
+}
+
+// "Files: index.html 2.1KB, app.js 4.3KB — 6.4KB of ~2MB." — so the AI can gauge how close to the limit.
+function sizesLine(files: Record<string, string>): string {
+  const total = Object.values(files).reduce((a, c) => a + c.length, 0);
+  const each = Object.entries(files).map(([p, c]) => `${p} ${(c.length / 1024).toFixed(1)}KB`).join(", ");
+  return `Files: ${each} — ${(total / 1024).toFixed(1)}KB of ~2MB.`;
 }

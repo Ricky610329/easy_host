@@ -12,9 +12,8 @@ still have to read each file and send its content. The realistic fixes for the t
 ## update_app (highest-value bucket)
 - [ ] **`str_replace` patches** — `update_app({ id, edits:[{path, old, new}] })` so a one-line change
       doesn't resend a 15KB file. Biggest win for token cost + truncation risk. (Today: whole-file merge.)
-- [ ] **`get_app(id)`** — return the current files (or hashes) so the AI can read live state, edit
-      precisely, and confirm which version is deployed. (Today: write-only.)
-- [ ] **dry-run** — validate without deploying.
+- [x] **`get_app(id)`** — returns the current files (path, size, content) so the AI can read live state, edit precisely, and confirm what's deployed.
+- [x] **dry-run** — `publish_app`/`update_app` take `dryRun` to validate without saving.
 - [ ] **versioning / rollback** — revert to the previous version after a bad deploy.
 - [x] merge-only-changed-files (already shipped; whole-file granularity).
 
@@ -24,7 +23,7 @@ still have to read each file and send its content. The realistic fixes for the t
 - [ ] **Pre-publish validation** — parse the HTML and reject obvious breakage with a message instead
       of silently going live. (JS *syntax* check is hard: Workers block `eval`/`new Function`; a real
       check needs browser rendering — see below.)
-- [ ] **Per-file byte counts in the response** — so the AI can see how close it is to the limits.
+- [x] **Per-file byte counts in the response** — publish/update now append a `Files: …` size line.
 
 ## get_build_guide
 - [ ] State the hard limits up front (≤20 files, ~2MB total, ~64KB/value, 1000 keys) **and** a suggested
