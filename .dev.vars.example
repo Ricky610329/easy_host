@@ -1,0 +1,24 @@
+# Copy to `.dev.vars` (gitignored) for local dev, and set the same as `wrangler secret put` in prod.
+# Generate VAPID with: node scripts/gen-vapid.mjs
+
+# --- Push notifications (VAPID) ---
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_JWK=
+VAPID_SUBJECT=mailto:you@example.com
+
+# --- Accounts (Google OAuth) + signing keys ---
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+COOKIE_SECRET=        # openssl rand -base64 32  (session cookie signing)
+CAP_SECRET=           # openssl rand -base64 32  (per-app capability tokens)
+
+# --- Local dev only: pin path-mode so you don't need wildcard DNS ---
+PUBLIC_BASE_URL=http://localhost:8787
+
+# --- Operator (optional) ---
+ADMIN_TOKEN=          # bearer for /admin/* (takedown + site kill-switch)
+
+# --- Cost auto-shutoff (optional; all three needed to arm it) ---
+DAILY_REQUEST_BUDGET= # e.g. 80000 — close the site for the day if exceeded
+CF_API_TOKEN=         # Cloudflare API token with Account Analytics:Read
+CF_ACCOUNT_ID=        # your Cloudflare account id

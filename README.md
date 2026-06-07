@@ -4,6 +4,8 @@
 
 **Ask an AI to build you an app — and get a real, installable phone app with a backend.**
 
+**Demo:** _(video coming)_ · **Live:** [ship-it-app.com](https://ship-it-app.com)
+
 easy_host is a single [Cloudflare Worker](https://workers.cloudflare.com/) that turns any AI-generated HTML page into an installable [PWA](https://web.dev/learn/pwa) with **persistent storage** and **real push notifications** (including scheduled and recurring reminders that fire even when the app is closed). No app store, no native build, no separate backend to wire up.
 
 Connect it to your AI assistant once, then just say *"make me a water-reminder app"* — the AI writes it, easy_host hosts it, and you Add to Home Screen. The notification that buzzes your phone every 2 hours is the thing a static page can never do.
@@ -132,3 +134,7 @@ isolation, multi-file apps, unified per-user data, and the cost auto-shutoff are
 ## License
 
 [MIT](./LICENSE) © 2026 Ricky Tsou
+
+---
+
+_Not affiliated with or endorsed by Anthropic. "Claude" is a trademark of Anthropic; easy_host simply connects to it as an MCP connector. Bring your own API keys and Cloudflare account._
